@@ -33,11 +33,11 @@ CACHES = {
     }
 }
 
-for _app in [
+INSTALLED_APPS += [
     "aa_burnneweden",
-]:
-    if _app not in INSTALLED_APPS:
-        INSTALLED_APPS.append(_app)
+    "allianceauth.services.modules.discord",
+    "aadiscordbot",
+]
 
 # Ensure startup INFO logs from aa_burnneweden.app are visible in container logs.
 LOGGING = globals().get("LOGGING", {}).copy()
@@ -64,33 +64,19 @@ _logging_loggers["aa_burnneweden.app"] = {
 #     if _app not in INSTALLED_APPS:
 #         INSTALLED_APPS.append(_app)
 
-AA_ENABLE_DISCORDBOT = os.environ.get("AA_ENABLE_DISCORDBOT", "0") in {"1", "true", "True", "yes", "on"}
+DISCORD_CALLBACK_URL = f"{SITE_URL}/discord/callback/"
+DISCORD_GUILD_ID = os.environ.get("DISCORD_GUILD_ID", "")
+DISCORD_APP_ID = os.environ.get("DISCORD_APP_ID", "")
+DISCORD_APP_SECRET = os.environ.get("DISCORD_APP_SECRET", "")
+DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
+DISCORD_SYNC_NAMES = False
 
-if AA_ENABLE_DISCORDBOT:
-    for _app in [
-        "allianceauth.services.modules.discord",
-        "aadiscordbot",
-    ]:
-        if _app not in INSTALLED_APPS:
-            INSTALLED_APPS.append(_app)
+AUTHBOT_DISCORD_APP_ID = os.environ.get("AUTHBOT_DISCORD_APP_ID", DISCORD_APP_ID)
+AUTHBOT_DISCORD_BOT_TOKEN = os.environ.get("AUTHBOT_DISCORD_BOT_TOKEN", DISCORD_BOT_TOKEN)
 
-    # Core Alliance Auth Discord service settings (required by discordbot)
-    DISCORD_CALLBACK_URL = f"{SITE_URL}/discord/callback/"
-    DISCORD_GUILD_ID = os.environ.get("DISCORD_GUILD_ID", "")
-    DISCORD_APP_ID = os.environ.get("DISCORD_APP_ID", "")
-    DISCORD_APP_SECRET = os.environ.get("DISCORD_APP_SECRET", "")
-    DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
-    DISCORD_SYNC_NAMES = False
-
-    # Optional dedicated bot credentials for aa-discordbot. If unset, it falls back
-    # to the core Discord service credentials above.
-    AUTHBOT_DISCORD_APP_ID = os.environ.get("AUTHBOT_DISCORD_APP_ID", DISCORD_APP_ID)
-    AUTHBOT_DISCORD_BOT_TOKEN = os.environ.get("AUTHBOT_DISCORD_BOT_TOKEN", DISCORD_BOT_TOKEN)
-
-    # Keep this testsite bot footprint minimal and auth-focused.
-    DISCORD_BOT_COGS = [
-        "aadiscordbot.cogs.auth",
-    ]
+DISCORD_BOT_COGS = [
+    "aadiscordbot.cogs.auth",
+]
 
 from celery.schedules import crontab
 
