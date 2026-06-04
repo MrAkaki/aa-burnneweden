@@ -56,9 +56,28 @@ If you want to send Discord direct messages to users, install and configure
 - App page: https://apps.allianceauth.org/apps/detail/allianceauth-discordbot
 - This integration is optional and not required for core `aa-burnneweden` features.
 
-For the included local testsite (`aa-testsite/`), DM support is enabled only when
-`AA_ENABLE_DISCORDBOT=1` and Discord credentials are configured in
-`aa-testsite/.env`.
+### Minimum configuration
+
+Add to `INSTALLED_APPS`:
+
+```python
+INSTALLED_APPS += [
+    "allianceauth.services.modules.discord",
+    "aadiscordbot",
+]
+```
+
+Add to your settings (e.g. `local.py`):
+
+```python
+DISCORD_GUILD_ID = "your-guild-id"
+DISCORD_APP_ID = "your-app-id"
+DISCORD_APP_SECRET = "your-app-secret"
+DISCORD_BOT_TOKEN = "your-bot-token"
+DISCORD_CALLBACK_URL = f"{SITE_URL}/discord/callback/"
+```
+
+For the local testsite (`aa-testsite/`), set the above values in `aa-testsite/.env`.
 
 ## Collaboration
 
