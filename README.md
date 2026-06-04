@@ -27,3 +27,33 @@ These tasks run via Celery and should be scheduled with Celery beat (or `django-
 3. Run `python manage.py migrate`
 4. Add the required permissions to your AA groups
 5. Configure a corporation via the Admin panel
+
+## Collaboration
+
+This repository uses a PR-only workflow.
+
+- Do not push or merge directly to `main`
+- All changes must go through a pull request
+- Pull requests must have at least 1 approval
+- Required review must come from code owners
+
+### Tooling and Agent Policy
+
+Collaborators may use any local tools they prefer (including AI or agentic coding tools) while working.
+
+- The repository and source code remain tool-agnostic
+- Do not add agent-specific configs, prompts, instructions, or metadata files to this repo
+- Keep contributions focused on application code, tests, docs, and standard project configuration
+- Proposed changes are reviewed on code quality and behavior, not on which tool was used
+
+### Branch Protection (GitHub Ruleset)
+
+Configure a branch ruleset targeting `main` with the following settings:
+
+- Require a pull request before merging
+- Require approvals (set to 1)
+- Require review from Code Owners
+- Dismiss stale pull request approvals when new commits are pushed
+- Require conversation resolution before merging
+- Block force pushes
+- Block branch deletion
