@@ -1,0 +1,215 @@
+{% extends 'aa_burnneweden/base.html' %}
+{% load i18n humanize %}
+
+{% block burnneweden_content %}
+<div class="row mb-3">
+    <div class="col-md-8">
+        <h2>{% trans "Staff Dashboard" %}</h2>
+    </div>
+    <div class="col-md-4 text-end">
+        {% if perms.aa_burnneweden.admin_access %}
+        <form method="post" action="{% url 'aa_burnneweden:admin_sync' %}" class="d-inline">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-warning me-2">
+                <i class="fas fa-sync-alt fa-fw"></i> {% trans "Sync ESI Now" %}
+            </button>
+        </form>
+        <a href="{% url 'aa_burnneweden:admin_config' %}" class="btn btn-secondary">
+            <i class="fas fa-cog fa-fw"></i> {% trans "Config" %}
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="row mb-3">
+    <div class="col-12">
+        <form method="get" class="d-flex gap-2 align-items-center">
+            <label class="fw-bold">{% trans "Filter by status:" %}</label>
+            <select name="status" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+                <option value="">{% trans "All" %}</option>
+                {% for value, label in status_choices %}
+                    <option value="{{ value }}" {% if value == current_status %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </form>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        {% if contracts %}
+            <table class="table table-striped table-hover table-sm">
+                <thead class="table-dark">
+                    <tr>
+                        <th>{% trans "ID" %}</th>
+                        <th>{% trans "Title" %}</th>
+                        <th>{% trans "Issuer" %}</th>
+                        <th>{% trans "AA User" %}</th>
+                        <th>{% trans "Value (ISK)" %}</th>
+                        <th>{% trans "Status" %}</th>
+                        <th>{% trans "Runner" %}</th>
+                        <th>{% trans "Issued" %}</th>
+                        <th>{% trans "Actions" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for contract in contracts %}
+                    <tr>
+                        <td>
+                            <a href="{% url 'aa_burnneweden:contract_detail' contract.pk %}">{{ contract.contract_id }}</a>
+                        </td>
+                        <td>{{ contract.title|default:"-"|truncatechars:30 }}</td>
+                        <td>{{ contract.issuer_character.character_name|default:"-" }}</td>
+                        <td>{% if contract.issuer_on_aa %}<span class="text-white">{{ contract.issuer_main_name }}</span>{% else %}<span class="text-muted">unregistered</span>{% endif %}</td>
+                        <td>{% if contract.contract_value >= 0 %}<span class="text-success">+{{ contract.contract_value|intcomma }}</span>{% else %}<span class="text-danger">{{ contract.contract_value|intcomma }}</span>{% endif %}</td>
+                        <td>{% include 'aa_burnneweden/_status_badge.html' with status=contract.status %}</td>
+                        <td>
+                            {% if contract.assigned_runner or contract.accepted_by %}
+                                <span class="text-white">{{ contract.runner_main_name }}</span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ contract.date_issued|date:"m-d H:i" }}</td>
+                        <td class="text-end">
+                            <div class="btn-group btn-group-sm">
+                                {% if contract.status == 'accepted' %}
+                                    <button class="btn btn-success btn-sm" title="{% trans 'Complete' %}"
+                                        data-bs-toggle="modal" data-bs-target="#completeModal"
+                                        data-contract-pk="{{ contract.pk }}" data-contract-id="{{ contract.contract_id }}">
+                                        <i class="fas fa-check"></i>
+                                    </button>
+                                    <button class="btn btn-danger btn-sm" title="{% trans 'Reject' %}"
+                                        data-bs-toggle="modal" data-bs-target="#rejectModal"
+                                        data-contract-pk="{{ contract.pk }}" data-contract-id="{{ contract.contract_id }}">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                    <button class="btn btn-outline-info btn-sm"
+                                        data-bs-toggle="modal" data-bs-target="#reassignModal"
+                                        data-contract-pk="{{ contract.pk }}" data-contract-id="{{ contract.contract_id }}"
+                                        title="{% trans 'Reassign' %}">
+                                        <i class="fas fa-user-edit"></i>
+                                    </button>
+                                {% endif %}
+                                {% if contract.status == 'open' or contract.status == 'accepted' %}
+                                    <form method="post" action="{% url 'aa_burnneweden:contract_cancel' contract.pk %}" class="d-inline">
+                                        {% csrf_token %}
+                                        <button class="btn btn-outline-secondary btn-sm" title="{% trans 'Cancel' %}"
+                                            onclick="return confirm('Cancel this contract?')">
+                                            <i class="fas fa-ban"></i>
+                                        </button>
+                                    </form>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="alert alert-info">{% trans "No contracts found." %}</div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Complete Modal -->
+<div class="modal fade" id="completeModal" tabindex="-1" aria-labelledby="completeModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="completeModalLabel">{% trans "Complete Contract" %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" id="completeForm" action="">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <p id="completeContractLabel" class="text-muted small"></p>
+                    <label for="completeComment" class="form-label">{% trans "Comment" %} <span class="text-muted">({% trans "optional" %})</span></label>
+                    <textarea name="comment" id="completeComment" class="form-control" rows="3" placeholder="{% trans 'Add a note about this run...' %}"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
+                    <button type="submit" class="btn btn-success">{% trans "Mark as Completed" %}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Reject Modal -->
+<div class="modal fade" id="rejectModal" tabindex="-1" aria-labelledby="rejectModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="rejectModalLabel">{% trans "Reject Contract" %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" id="rejectForm" action="">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <p id="rejectContractLabel" class="text-muted small"></p>
+                    <label for="rejectReason" class="form-label">{% trans "Reason" %} <span class="text-danger">*</span></label>
+                    <textarea name="reason" id="rejectReason" class="form-control" rows="3" required placeholder="{% trans 'Explain why this contract is being rejected...' %}"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
+                    <button type="submit" class="btn btn-danger">{% trans "Reject Contract" %}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Reassign Modal -->
+<div class="modal fade" id="reassignModal" tabindex="-1" aria-labelledby="reassignModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="reassignModalLabel">{% trans "Reassign Contract" %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" id="reassignForm" action="">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <p id="reassignContractLabel"></p>
+                    <label for="runner_id" class="form-label">{% trans "Select Runner" %}</label>
+                    <select name="runner_id" id="runner_id" class="form-select">
+                        <option value="">— {% trans "Unassign" %} —</option>
+                        {# Runner list populated via template tag or separate endpoint in a future iteration #}
+                    </select>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
+                    <button type="submit" class="btn btn-primary">{% trans "Reassign" %}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% block extra_javascript %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('completeModal').addEventListener('show.bs.modal', function (event) {
+        var btn = event.relatedTarget;
+        document.getElementById('completeForm').action = '/burnneweden/' + btn.getAttribute('data-contract-pk') + '/complete/';
+        document.getElementById('completeContractLabel').textContent = 'Contract #' + btn.getAttribute('data-contract-id');
+        document.getElementById('completeComment').value = '';
+    });
+
+    document.getElementById('rejectModal').addEventListener('show.bs.modal', function (event) {
+        var btn = event.relatedTarget;
+        document.getElementById('rejectForm').action = '/burnneweden/' + btn.getAttribute('data-contract-pk') + '/reject/';
+        document.getElementById('rejectContractLabel').textContent = 'Contract #' + btn.getAttribute('data-contract-id');
+        document.getElementById('rejectReason').value = '';
+    });
+
+    document.getElementById('reassignModal').addEventListener('show.bs.modal', function (event) {
+        var btn = event.relatedTarget;
+        document.getElementById('reassignForm').action = '/burnneweden/' + btn.getAttribute('data-contract-pk') + '/reassign/';
+        document.getElementById('reassignContractLabel').textContent = 'Contract #' + btn.getAttribute('data-contract-id');
+    });
+});
+</script>
+{% endblock %}
+{% endblock %}

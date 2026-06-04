@@ -1,0 +1,729 @@
+{% extends 'aa_burnneweden/base.html' %}
+{% load i18n humanize %}
+
+{% block burnneweden_content %}
+
+{% if is_staff %}
+<div class="row mb-3">
+    <div class="col-md-8">
+        <h2>{% trans "Burn New Eden" %}</h2>
+    </div>
+    <div class="col-md-4 text-end">
+        {% if perms.aa_burnneweden.admin_access %}
+        <form method="post" action="{% url 'aa_burnneweden:admin_sync' %}" class="d-inline">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-warning me-2">
+                <i class="fas fa-sync-alt fa-fw"></i> {% trans "Sync ESI Now" %}
+            </button>
+        </form>
+        <a href="{% url 'aa_burnneweden:admin_config' %}" class="btn btn-secondary">
+            <i class="fas fa-cog fa-fw"></i> {% trans "Config" %}
+        </a>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{# Tab navigation #}
+<ul class="nav nav-tabs mb-4" id="burnnewedenTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="tab-dashboard-btn" data-bs-toggle="tab"
+            data-bs-target="#tab-dashboard" type="button" role="tab">
+            <i class="fas fa-chart-bar fa-fw"></i> {% trans "Dashboard" %}
+        </button>
+    </li>
+    {% if show_puller_tab %}
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-puller-btn" data-bs-toggle="tab"
+            data-bs-target="#tab-puller" type="button" role="tab">
+            <i class="fas fa-inbox fa-fw"></i> {% trans "Puller" %}
+            {% if my_running %}<span class="badge bg-warning text-dark ms-1">{{ my_running }}</span>{% endif %}
+        </button>
+    </li>
+    {% endif %}
+    {% if show_runner_tab %}
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-runner-btn" data-bs-toggle="tab"
+            data-bs-target="#tab-runner" type="button" role="tab">
+            <i class="fas fa-running fa-fw"></i> {% trans "Runner" %}
+            {% if my_runs_active %}<span class="badge bg-warning text-dark ms-1">{{ my_runs_active }}</span>{% endif %}
+        </button>
+    </li>
+    {% endif %}
+</ul>
+
+<div class="tab-content" id="burnnewedenTabContent">
+
+    {# ── TAB 1: Dashboard ── #}
+    <div class="tab-pane fade show active" id="tab-dashboard" role="tabpanel">
+
+        {# ── Global corp stats ── #}
+        <h6 class="text-muted text-uppercase small fw-semibold mb-2 mt-1">{% trans "Corp Overview" %}</h6>
+        <div class="row g-3 mb-4">
+            <div class="col-6 col-sm-4 col-lg-2">
+                <div class="card text-center h-100 border-primary">
+                    <div class="card-body py-3">
+                        <div class="fs-2 fw-bold text-primary">{{ stat_open }}</div>
+                        <div class="text-muted small">{% trans "Open" %}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-sm-4 col-lg-2">
+                <div class="card text-center h-100 border-warning">
+                    <div class="card-body py-3">
+                        <div class="fs-2 fw-bold text-warning">{{ stat_running }}</div>
+                        <div class="text-muted small">{% trans "Running" %}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-sm-4 col-lg-2">
+                <div class="card text-center h-100 border-success">
+                    <div class="card-body py-3">
+                        <div class="fs-2 fw-bold text-success">{{ stat_closed_24h }}</div>
+                        <div class="text-muted small">{% trans "Done (24h)" %}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-sm-4 col-lg-2">
+                <div class="card text-center h-100 border-info">
+                    <div class="card-body py-3">
+                        <div class="fs-2 fw-bold text-info">{{ stat_fast_done }}</div>
+                        <div class="text-muted small">{% trans "Under 4h" %}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-sm-4 col-lg-2">
+                <div class="card text-center h-100">
+                    <div class="card-body py-3">
+                        <div class="fs-2 fw-bold">{{ stat_completed_week }}</div>
+                        <div class="text-muted small">{% trans "Done (7d)" %}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-sm-4 col-lg-2">
+                <div class="card text-center h-100">
+                    <div class="card-body py-3">
+                        <div class="fs-2 fw-bold">{{ stat_completed_month }}</div>
+                        <div class="text-muted small">{% trans "Done (30d)" %}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# ── Activity chart ── #}
+        <div class="card mb-4">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span><i class="fas fa-chart-bar fa-fw me-1"></i> {% trans "Contracts Completed — Last 30 Days" %}</span>
+            </div>
+            <div class="card-body" style="height:220px; position:relative;">
+                <canvas id="completionsChart"></canvas>
+            </div>
+        </div>
+
+        {# ── My runner stats (if runner) ── #}
+        {% if show_runner_tab %}
+        <hr>
+        <h6 class="text-muted text-uppercase small fw-semibold mb-2">{% trans "My Runner Activity" %}</h6>
+        <div class="row g-3 mb-4">
+            <div class="col-4">
+                <div class="card text-center h-100 border-warning">
+                    <div class="card-body py-2">
+                        <div class="fs-3 fw-bold text-warning">{{ my_runs_active }}</div>
+                        <div class="text-muted small">{% trans "Currently Running" %}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-4">
+                <div class="card text-center h-100">
+                    <div class="card-body py-2">
+                        <div class="fs-3 fw-bold">{{ my_runs_week }}</div>
+                        <div class="text-muted small">{% trans "Completed (7d)" %}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-4">
+                <div class="card text-center h-100">
+                    <div class="card-body py-2">
+                        <div class="fs-3 fw-bold">{{ my_runs_month }}</div>
+                        <div class="text-muted small">{% trans "Completed (30d)" %}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {# ── My puller stats + character management ── #}
+        {% if show_puller_tab %}
+        <hr>
+        <h6 class="text-muted text-uppercase small fw-semibold mb-2">{% trans "My Puller Activity" %}</h6>
+        <div class="row g-3 mb-3">
+            <div class="col-4">
+                <div class="card text-center border-primary h-100">
+                    <div class="card-body py-2">
+                        <div class="fs-3 fw-bold text-primary">{{ my_open }}</div>
+                        <div class="text-muted small">{% trans "Open" %}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-4">
+                <div class="card text-center border-warning h-100">
+                    <div class="card-body py-2">
+                        <div class="fs-3 fw-bold text-warning">{{ my_running }}</div>
+                        <div class="text-muted small">{% trans "Running" %}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-4">
+                <div class="card text-center border-success h-100">
+                    <div class="card-body py-2">
+                        <div class="fs-3 fw-bold text-success">{{ my_completed }}</div>
+                        <div class="text-muted small">{% trans "Completed" %}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <h6 class="mb-2 mt-3">{% trans "Sync Characters" %}</h6>
+        {% if puller_characters %}
+        <ul class="list-group mb-3">
+            {% for c in puller_characters %}
+            <li class="list-group-item d-flex align-items-center justify-content-between gap-2">
+                <div class="d-flex align-items-center gap-2">
+                    <img src="https://images.evetech.net/characters/{{ c.character_id }}/portrait?size=32" class="rounded" width="32" height="32">
+                    {{ c.character_name }}
+                </div>
+                <form method="post" action="{% url 'aa_burnneweden:puller_remove_character' %}" class="d-inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="character_id" value="{{ c.character_id }}">
+                    <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Remove {{ c.character_name }} from sync?')">
+                        <i class="fas fa-times fa-fw"></i>
+                    </button>
+                </form>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <div class="alert alert-warning">{% trans "No characters added yet. Add one to enable contract sync." %}</div>
+        {% endif %}
+        <a href="{% url 'aa_burnneweden:puller_add_character' %}" class="btn btn-sm btn-outline-primary">
+            <i class="fas fa-plus fa-fw"></i> {% trans "Add Character" %}
+        </a>
+        {% endif %}
+
+    </div>{# end tab-dashboard #}
+
+    {# ── TAB 2: Puller ── #}
+    {% if show_puller_tab %}
+    <div class="tab-pane fade" id="tab-puller" role="tabpanel">
+
+        <div class="d-flex justify-content-end mb-3">
+            {% if has_puller_token %}
+            <form method="post" action="{% url 'aa_burnneweden:puller_sync' %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-outline-secondary">
+                    <i class="fas fa-sync-alt fa-fw"></i> {% trans "Refresh My Contracts" %}
+                </button>
+            </form>
+            {% else %}
+            <span class="text-muted small">
+                <i class="fas fa-info-circle fa-fw"></i>
+                {% trans "Add a character token in the Dashboard tab to enable refresh." %}
+            </span>
+            {% endif %}
+        </div>
+
+        {# Running — most important: your contracts currently being worked on #}
+        <h5 class="mt-2">
+            <i class="fas fa-running fa-fw text-warning"></i>
+            {% trans "Currently Running" %}
+            <span class="badge bg-warning text-dark ms-1">{{ puller_running|length }}</span>
+        </h5>
+        <p class="text-muted small mb-2">{% trans "Your contracts that a runner has accepted and is actively working on." %}</p>
+        {% if puller_running %}
+        <div class="table-responsive mb-4">
+            <table class="table table-striped table-hover table-sm">
+                <thead class="table-dark">
+                    <tr>
+                        <th>{% trans "Title" %}</th>
+                        <th>{% trans "Value (ISK)" %}</th>
+                        <th>{% trans "Issued" %}</th>
+                        <th>{% trans "Picked up" %}</th>
+                        <th>{% trans "Runner" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in puller_running %}
+                    <tr>
+                        <td><a href="{% url 'aa_burnneweden:contract_detail' c.pk %}">{{ c.title|default:c.contract_id }}</a></td>
+                        <td>{{ c.reward|intcomma }}</td>
+                        <td>{{ c.date_issued|date:"Y-m-d H:i" }}</td>
+                        <td>{{ c.date_started|date:"Y-m-d H:i"|default:"-" }}</td>
+                        <td>
+                            {% if c.assigned_runner or c.accepted_by %}
+                                <span class="badge bg-warning text-dark">
+                                    <i class="fas fa-running fa-fw"></i> {{ c.runner_main_name }}
+                                </span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="alert alert-info mb-4">{% trans "None of your contracts are being run right now." %}</div>
+        {% endif %}
+
+        {# Open #}
+        <h5 class="mt-2">
+            {% trans "Open" %}
+            <span class="badge bg-primary ms-1">{{ puller_open|length }}</span>
+        </h5>
+        <p class="text-muted small mb-2">{% trans "Waiting for a runner to pick up." %}</p>
+        {% if puller_open %}
+        <div class="table-responsive mb-4">
+            <table class="table table-striped table-hover table-sm">
+                <thead class="table-dark">
+                    <tr>
+                        <th>{% trans "Title" %}</th>
+                        <th>{% trans "Value (ISK)" %}</th>
+                        <th>{% trans "Issued" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in puller_open %}
+                    <tr>
+                        <td><a href="{% url 'aa_burnneweden:contract_detail' c.pk %}">{{ c.title|default:c.contract_id }}</a></td>
+                        <td>{{ c.reward|intcomma }}</td>
+                        <td>{{ c.date_issued|date:"Y-m-d H:i" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="alert alert-info mb-4">{% trans "No open contracts." %}</div>
+        {% endif %}
+
+        {# Closed — collapsed by default #}
+        <h5 class="mt-2">
+            <button class="btn btn-link p-0 text-decoration-none text-body" type="button"
+                data-bs-toggle="collapse" data-bs-target="#pullerClosedCollapse" aria-expanded="false">
+                <i class="fas fa-chevron-right fa-fw" id="pullerClosedChevron"></i>
+                {% trans "Closed" %}
+                <span class="badge bg-secondary ms-1">{{ puller_closed|length }}</span>
+            </button>
+        </h5>
+        <div class="collapse" id="pullerClosedCollapse">
+        {% if puller_closed %}
+        <div class="table-responsive mt-2">
+            <table class="table table-striped table-hover table-sm">
+                <thead class="table-dark">
+                    <tr>
+                        <th>{% trans "Title" %}</th>
+                        <th>{% trans "Value (ISK)" %}</th>
+                        <th>{% trans "Status" %}</th>
+                        <th>{% trans "Issued" %}</th>
+                        <th>{% trans "Picked up" %}</th>
+                        <th>{% trans "Closed" %}</th>
+                        <th>{% trans "Runner" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in puller_closed %}
+                    <tr>
+                        <td><a href="{% url 'aa_burnneweden:contract_detail' c.pk %}">{{ c.title|default:c.contract_id }}</a></td>
+                        <td>{{ c.reward|intcomma }}</td>
+                        <td>{% include 'aa_burnneweden/_status_badge.html' with status=c.status %}</td>
+                        <td>{{ c.date_issued|date:"Y-m-d H:i" }}</td>
+                        <td>{{ c.date_started|date:"Y-m-d H:i"|default:"-" }}</td>
+                        <td>
+                            {% if c.date_rejected %}
+                                <span class="text-danger">{{ c.date_rejected|date:"Y-m-d H:i" }}</span>
+                            {% elif c.date_completed %}
+                                {{ c.date_completed|date:"Y-m-d H:i" }}
+                            {% else %}-{% endif %}
+                        </td>
+                        <td>
+                            {% if c.assigned_runner or c.accepted_by %}<span class="text-white">{{ c.runner_main_name }}</span>
+                            {% else %}<span class="text-muted">-</span>{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="alert alert-info mt-2">{% trans "No closed contracts." %}</div>
+        {% endif %}
+        </div>{# end collapse #}
+
+    </div>
+    {% endif %}
+
+    {# ── TAB 3: Runner ── #}
+    {% if show_runner_tab %}
+    <div class="tab-pane fade" id="tab-runner" role="tabpanel">
+
+        {# Running — first and most prominent #}
+        <h5 class="mt-2">
+            <i class="fas fa-running fa-fw text-warning"></i>
+            {% if is_staff %}{% trans "Running" %}{% else %}{% trans "My Active Runs" %}{% endif %}
+            <span class="badge bg-warning text-dark ms-1">{{ runner_running|length }}</span>
+        </h5>
+        {% if runner_running %}
+        <div class="table-responsive mb-4">
+            <table class="table table-striped table-hover table-sm">
+                <thead class="table-dark">
+                    <tr>
+                        <th>{% trans "Title" %}</th>
+                        {% if is_staff %}<th>{% trans "Issued by" %}</th>{% endif %}
+                        <th>{% trans "Value (ISK)" %}</th>
+                        <th>{% trans "Issued" %}</th>
+                        <th>{% trans "Picked up" %}</th>
+                        {% if is_staff %}<th>{% trans "Runner" %}</th>{% endif %}
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in runner_running %}
+                    <tr>
+                        <td><a href="{% url 'aa_burnneweden:contract_detail' c.pk %}">{{ c.title|default:c.contract_id }}</a></td>
+                        {% if is_staff %}<td>{% if c.issuer_on_aa %}<span class="text-white">{{ c.issuer_main_name }}</span>{% else %}<span class="text-warning">{{ c.issuer_main_name }}</span>{% endif %}</td>{% endif %}
+                        <td>{{ c.reward|intcomma }}</td>
+                        <td>{{ c.date_issued|date:"Y-m-d H:i" }}</td>
+                        <td>{{ c.date_started|date:"Y-m-d H:i"|default:"-" }}</td>
+                        {% if is_staff %}<td><span class="text-white">{{ c.runner_main_name }}</span></td>{% endif %}
+                        <td class="text-end">
+                            {% if is_staff %}
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-success btn-sm" title="{% trans 'Complete' %}"
+                                    data-bs-toggle="modal" data-bs-target="#completeModal"
+                                    data-contract-pk="{{ c.pk }}" data-contract-id="{{ c.contract_id }}">
+                                    <i class="fas fa-check"></i>
+                                </button>
+                                <button class="btn btn-danger btn-sm" title="{% trans 'Reject' %}"
+                                    data-bs-toggle="modal" data-bs-target="#rejectModal"
+                                    data-contract-pk="{{ c.pk }}" data-contract-id="{{ c.contract_id }}">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                                <form method="post" action="{% url 'aa_burnneweden:contract_cancel' c.pk %}">{% csrf_token %}
+                                    <button class="btn btn-outline-secondary btn-sm" title="{% trans 'Cancel' %}"><i class="fas fa-ban"></i></button>
+                                </form>
+                                <button class="btn btn-outline-info btn-sm" data-bs-toggle="modal" data-bs-target="#reassignModal"
+                                    data-contract-pk="{{ c.pk }}" data-contract-id="{{ c.contract_id }}" title="{% trans 'Reassign' %}">
+                                    <i class="fas fa-user-edit"></i>
+                                </button>
+                            </div>
+                            {% else %}
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-sm btn-success"
+                                    data-bs-toggle="modal" data-bs-target="#completeModal"
+                                    data-contract-pk="{{ c.pk }}" data-contract-id="{{ c.contract_id }}">
+                                    {% trans "Complete" %}
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger"
+                                    data-bs-toggle="modal" data-bs-target="#rejectModal"
+                                    data-contract-pk="{{ c.pk }}" data-contract-id="{{ c.contract_id }}">
+                                    {% trans "Reject" %}
+                                </button>
+                            </div>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="alert alert-info mb-4">{% trans "You are not running any contracts." %}</div>
+        {% endif %}
+
+        {# Available #}
+        <h5 class="mt-2">
+            {% trans "Available" %}
+            <span class="badge bg-primary ms-1">{{ runner_available|length }}</span>
+        </h5>
+        <p class="text-muted small mb-2">{% trans "Open contracts waiting to be picked up." %}</p>
+        {% if runner_available %}
+        <div class="table-responsive mb-4">
+            <table class="table table-striped table-hover table-sm">
+                <thead class="table-dark">
+                    <tr>
+                        <th>{% trans "Title" %}</th>
+                        <th>{% trans "Issued by" %}</th>
+                        <th>{% trans "Value (ISK)" %}</th>
+                        <th>{% trans "Issued" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in runner_available %}
+                    <tr>
+                        <td><a href="{% url 'aa_burnneweden:contract_detail' c.pk %}">{{ c.title|default:c.contract_id }}</a></td>
+                        <td>{% if c.issuer_on_aa %}<span class="text-white">{{ c.issuer_main_name }}</span>{% else %}<span class="text-warning">{{ c.issuer_main_name }}</span>{% endif %}</td>
+                        <td>{{ c.reward|intcomma }}</td>
+                        <td>{{ c.date_issued|date:"Y-m-d H:i" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="alert alert-info mb-4">{% trans "No contracts available right now." %}</div>
+        {% endif %}
+
+        {# Closed — collapsed by default #}
+        <h5 class="mt-2">
+            <button class="btn btn-link p-0 text-decoration-none text-body" type="button"
+                data-bs-toggle="collapse" data-bs-target="#runnerClosedCollapse" aria-expanded="false">
+                <i class="fas fa-chevron-right fa-fw" id="runnerClosedChevron"></i>
+                {% trans "Closed" %}
+                <span class="badge bg-secondary ms-1">{{ runner_closed|length }}</span>
+            </button>
+        </h5>
+        <div class="collapse" id="runnerClosedCollapse">
+        {% if runner_closed %}
+        <div class="table-responsive mt-2">
+            <table class="table table-striped table-hover table-sm">
+                <thead class="table-dark">
+                    <tr>
+                        <th>{% trans "Title" %}</th>
+                        {% if is_staff %}<th>{% trans "Issued by" %}</th>{% endif %}
+                        <th>{% trans "Value (ISK)" %}</th>
+                        <th>{% trans "Status" %}</th>
+                        <th>{% trans "Issued" %}</th>
+                        <th>{% trans "Picked up" %}</th>
+                        <th>{% trans "Closed" %}</th>
+                        {% if is_staff %}<th>{% trans "Runner" %}</th>{% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in runner_closed %}
+                    <tr>
+                        <td><a href="{% url 'aa_burnneweden:contract_detail' c.pk %}">{{ c.title|default:c.contract_id }}</a></td>
+                        {% if is_staff %}<td>{% if c.issuer_on_aa %}<span class="text-white">{{ c.issuer_main_name }}</span>{% else %}<span class="text-warning">{{ c.issuer_main_name }}</span>{% endif %}</td>{% endif %}
+                        <td>{{ c.reward|intcomma }}</td>
+                        <td>{% include 'aa_burnneweden/_status_badge.html' with status=c.status %}</td>
+                        <td>{{ c.date_issued|date:"Y-m-d H:i" }}</td>
+                        <td>{{ c.date_started|date:"Y-m-d H:i"|default:"-" }}</td>
+                        <td>
+                            {% if c.date_rejected %}
+                                <span class="text-danger">{{ c.date_rejected|date:"Y-m-d H:i" }}</span>
+                            {% elif c.date_completed %}
+                                {{ c.date_completed|date:"Y-m-d H:i" }}
+                            {% else %}-{% endif %}
+                        </td>
+                        {% if is_staff %}<td><span class="text-white">{{ c.runner_main_name }}</span></td>{% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="alert alert-info mt-2">{% trans "No closed contracts." %}</div>
+        {% endif %}
+        </div>{# end collapse #}
+
+    </div>
+    {% endif %}
+
+</div>{# end tab-content #}
+
+{# Complete modal — runners and staff #}
+{% if show_runner_tab %}
+<div class="modal fade" id="completeModal" tabindex="-1" aria-labelledby="completeModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="completeModalLabel">{% trans "Complete Contract" %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" id="completeForm" action="">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <p id="completeContractLabel" class="text-muted small"></p>
+                    <label for="completeComment" class="form-label">{% trans "Comment" %} <span class="text-muted">({% trans "optional" %})</span></label>
+                    <textarea name="comment" id="completeComment" class="form-control" rows="3" placeholder="{% trans 'Add a note about this run...' %}"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
+                    <button type="submit" class="btn btn-success">{% trans "Mark as Completed" %}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{# Reject modal — runners and staff #}
+<div class="modal fade" id="rejectModal" tabindex="-1" aria-labelledby="rejectModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="rejectModalLabel">{% trans "Reject Contract" %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" id="rejectForm" action="">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <p id="rejectContractLabel" class="text-muted small"></p>
+                    <label for="rejectReason" class="form-label">{% trans "Reason" %} <span class="text-danger">*</span></label>
+                    <textarea name="reason" id="rejectReason" class="form-control" rows="3" required placeholder="{% trans 'Explain why this contract is being rejected...' %}"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
+                    <button type="submit" class="btn btn-danger">{% trans "Reject Contract" %}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{# Reassign modal — staff only #}
+{% if is_staff %}
+<div class="modal fade" id="reassignModal" tabindex="-1" aria-labelledby="reassignModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="reassignModalLabel">{% trans "Reassign Contract" %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" id="reassignForm" action="">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <p id="reassignContractLabel"></p>
+                    <label for="runner_id" class="form-label">{% trans "Select Runner" %}</label>
+                    <select name="runner_id" id="runner_id" class="form-select">
+                        <option value="">— {% trans "Unassign" %} —</option>
+                    </select>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
+                    <button type="submit" class="btn btn-primary">{% trans "Reassign" %}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% block extra_javascript %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+    // ── Activity chart ──────────────────────────────────────────
+    var ctx = document.getElementById('completionsChart');
+    if (ctx) {
+        var isDark = document.documentElement.getAttribute('data-bs-theme') === 'dark'
+                     || document.body.classList.contains('theme-dark')
+                     || document.body.classList.contains('dark');
+        var gridColor = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)';
+        var labelColor = isDark ? '#adb5bd' : '#6c757d';
+
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: {{ chart_labels|safe }},
+                datasets: [{
+                    label: '{% trans "Completed" %}',
+                    data: {{ chart_values|safe }},
+                    backgroundColor: 'rgba(25, 135, 84, 0.6)',
+                    borderColor: 'rgba(25, 135, 84, 0.9)',
+                    borderWidth: 1,
+                    borderRadius: 3,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            title: function(items) { return items[0].label; },
+                            label: function(item) {
+                                return ' ' + item.raw + ' {% trans "completed" %}';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: gridColor },
+                        ticks: {
+                            color: labelColor,
+                            maxTicksLimit: 10,
+                            maxRotation: 0,
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: gridColor },
+                        ticks: {
+                            color: labelColor,
+                            precision: 0,
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // ── Collapse chevron rotation ───────────────────────────────
+    ['pullerClosedCollapse', 'runnerClosedCollapse'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        var chevronId = id === 'pullerClosedCollapse' ? 'pullerClosedChevron' : 'runnerClosedChevron';
+        el.addEventListener('show.bs.collapse', function () {
+            document.getElementById(chevronId).style.transform = 'rotate(90deg)';
+        });
+        el.addEventListener('hide.bs.collapse', function () {
+            document.getElementById(chevronId).style.transform = 'rotate(0deg)';
+        });
+    });
+
+    // ── Complete modal ──────────────────────────────────────────
+    var completeModal = document.getElementById('completeModal');
+    if (completeModal) {
+        completeModal.addEventListener('show.bs.modal', function (event) {
+            var btn = event.relatedTarget;
+            var pk = btn.getAttribute('data-contract-pk');
+            var contractId = btn.getAttribute('data-contract-id');
+            document.getElementById('completeForm').action = '/burnneweden/' + pk + '/complete/';
+            document.getElementById('completeContractLabel').textContent = 'Contract #' + contractId;
+            document.getElementById('completeComment').value = '';
+        });
+    }
+
+    // ── Reject modal ────────────────────────────────────────────
+    var rejectModal = document.getElementById('rejectModal');
+    if (rejectModal) {
+        rejectModal.addEventListener('show.bs.modal', function (event) {
+            var btn = event.relatedTarget;
+            var pk = btn.getAttribute('data-contract-pk');
+            var contractId = btn.getAttribute('data-contract-id');
+            document.getElementById('rejectForm').action = '/burnneweden/' + pk + '/reject/';
+            document.getElementById('rejectContractLabel').textContent = 'Contract #' + contractId;
+            document.getElementById('rejectReason').value = '';
+        });
+    }
+
+    // ── Reassign modal ──────────────────────────────────────────
+    var reassignModal = document.getElementById('reassignModal');
+    if (reassignModal) {
+        reassignModal.addEventListener('show.bs.modal', function (event) {
+            var btn = event.relatedTarget;
+            var pk = btn.getAttribute('data-contract-pk');
+            var contractId = btn.getAttribute('data-contract-id');
+            document.getElementById('reassignForm').action = '/burnneweden/' + pk + '/reassign/';
+            document.getElementById('reassignContractLabel').textContent = 'Contract #' + contractId;
+        });
+    }
+});
+</script>
+{% endblock %}
+
+{% endblock %}

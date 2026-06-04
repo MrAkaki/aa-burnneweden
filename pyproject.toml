@@ -1,0 +1,37 @@
+[build-system]
+requires = ["flit_core>=3.2.0,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "aa-burnneweden"
+version = "0.1.0"
+description = "Alliance Auth plugin to manage corporation burner contracts"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+keywords = ["allianceauth", "eveonline", "contracts", "burnneweden"]
+classifiers = [
+    "Environment :: Web Environment",
+    "Framework :: Django",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Internet :: WWW/HTTP",
+]
+dependencies = [
+    "allianceauth>=4.0.0",
+    "django-esi>=6.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "django-webtest",
+    "pytest",
+    "pytest-django",
+]
+
+[project.urls]
+Homepage = "https://github.com/MrAkaki/aa-burnneweden"
+
+[tool.flit.module]
+name = "aa_burnneweden"

@@ -1,0 +1,62 @@
+{% extends 'aa_burnneweden/base.html' %}
+{% load i18n humanize %}
+
+{% block burnneweden_content %}
+<div class="row">
+    <div class="col-12">
+        <h2>{% trans "My Contracts" %}</h2>
+        <p class="text-muted">{% trans "Contracts you have submitted to the corporation." %}</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        {% if contracts %}
+            <table class="table table-striped table-hover">
+                <thead class="table-dark">
+                    <tr>
+                        <th>{% trans "Contract ID" %}</th>
+                        <th>{% trans "Title" %}</th>
+                        <th>{% trans "Value (ISK)" %}</th>
+                        <th>{% trans "Status" %}</th>
+                        <th>{% trans "Runner" %}</th>
+                        <th>{% trans "Date Issued" %}</th>
+                        <th>{% trans "Expires" %}</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for contract in contracts %}
+                    <tr>
+                        <td>{{ contract.contract_id }}</td>
+                        <td>{{ contract.title|default:"-" }}</td>
+                        <td>{% if contract.contract_value >= 0 %}<span class="text-success">+{{ contract.contract_value|intcomma }}</span>{% else %}<span class="text-danger">{{ contract.contract_value|intcomma }}</span>{% endif %}</td>
+                        <td>
+                            {% include 'aa_burnneweden/_status_badge.html' with status=contract.status %}
+                        </td>
+                        <td>
+                            {% if contract.assigned_runner or contract.accepted_by %}
+                                <span class="text-white">{{ contract.runner_main_name }}</span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ contract.date_issued|date:"Y-m-d H:i" }}</td>
+                        <td>{{ contract.date_expired|date:"Y-m-d H:i" }}</td>
+                        <td>
+                            <a href="{% url 'aa_burnneweden:contract_detail' contract.pk %}" class="btn btn-sm btn-outline-secondary">
+                                {% trans "Details" %}
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="alert alert-info">
+                {% trans "You have no contracts submitted to the corporation." %}
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

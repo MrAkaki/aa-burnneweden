@@ -1,0 +1,13 @@
+{% if status == 'open' %}
+    <span class="badge bg-primary">Open</span>
+{% elif status == 'accepted' %}
+    <span class="badge bg-warning text-dark">Accepted</span>
+{% elif status == 'completed' %}
+    <span class="badge bg-success">Completed</span>
+{% elif status == 'cancelled' %}
+    <span class="badge bg-secondary">Cancelled</span>
+{% elif status == 'rejected' %}
+    <span class="badge bg-danger">Rejected</span>
+{% else %}
+    <span class="badge bg-light text-dark">{{ status }}</span>
+{% endif %}
