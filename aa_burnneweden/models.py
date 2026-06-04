@@ -99,6 +99,7 @@ class Contract(models.Model):
         related_name="burner_contracts_rejected",
     )
     staff_notes = models.TextField(blank=True)
+    discord_dm_sent = models.BooleanField(default=False)
 
     objects = ContractManager()
 
@@ -178,6 +179,30 @@ class Contract(models.Model):
 
     def __str__(self):
         return f"Contract #{self.contract_id} ({self.status})"
+
+
+class DiscordNotificationPreference(models.Model):
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="burner_discord_prefs",
+    )
+
+    # Runner opt-ins
+    notify_contract_created = models.BooleanField(default=False)
+    notify_contract_started = models.BooleanField(default=False)
+    notify_contract_rejected = models.BooleanField(default=False)
+    notify_contract_completed = models.BooleanField(default=False)
+
+    # Puller opt-in
+    notify_new_open_contracts = models.BooleanField(default=False)
+
+    class Meta:
+        default_permissions = ()
+        verbose_name = "Discord Notification Preference"
+
+    def __str__(self):
+        return f"Discord prefs for {self.user}"
 
 
 class ContractItem(models.Model):

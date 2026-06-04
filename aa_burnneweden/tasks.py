@@ -2,6 +2,8 @@ from celery import shared_task
 from celery.utils.log import get_task_logger
 from esi.exceptions import HTTPNotModified
 
+from . import notifications  # noqa: F401 — register notification tasks with Celery
+
 from django.utils.timezone import now
 
 logger = get_task_logger(__name__)
@@ -111,6 +113,7 @@ def update_contracts_for_corporation(owner_corp_pk: int):
         if not created:
             update_fields = ["esi_status", "date_started"]
             contract.esi_status = raw.status
+            prev_started = contract.date_started
             contract.date_started = raw.date_accepted
             # date_completed and date_rejected are app-managed — never overwrite them
 
@@ -124,6 +127,10 @@ def update_contracts_for_corporation(owner_corp_pk: int):
 
             contract.save(update_fields=update_fields)
 
+            if not prev_started and contract.date_started:
+                from .notifications import notify_runner_contract_started
+                notify_runner_contract_started.delay(contract.pk)
+
             # Resolve accepted_by from ESI acceptor_id if not yet set
             acceptor_id = getattr(raw, "acceptor_id", None)
             if acceptor_id and not contract.accepted_by_id:
@@ -134,6 +141,9 @@ def update_contracts_for_corporation(owner_corp_pk: int):
             acceptor_id = getattr(raw, "acceptor_id", None)
             if acceptor_id:
                 _resolve_accepted_by(contract, acceptor_id)
+            if not contract.date_started:
+                from .notifications import notify_runners_new_contract
+                notify_runners_new_contract.delay(contract.pk)
 
         updated += 1
 
@@ -244,6 +254,7 @@ def update_contracts_for_character(character_id: int, user_pk: int):
         if not created:
             update_fields = ["esi_status", "date_started"]
             contract.esi_status = raw.status
+            prev_started = contract.date_started
             contract.date_started = raw.date_accepted
             # date_completed and date_rejected are app-managed — never overwrite them
 
@@ -257,6 +268,10 @@ def update_contracts_for_character(character_id: int, user_pk: int):
 
             contract.save(update_fields=update_fields)
 
+            if not prev_started and contract.date_started:
+                from .notifications import notify_runner_contract_started
+                notify_runner_contract_started.delay(contract.pk)
+
             acceptor_id = getattr(raw, "acceptor_id", None)
             if acceptor_id and not contract.accepted_by_id:
                 _resolve_accepted_by(contract, acceptor_id)
@@ -266,6 +281,9 @@ def update_contracts_for_character(character_id: int, user_pk: int):
             acceptor_id = getattr(raw, "acceptor_id", None)
             if acceptor_id:
                 _resolve_accepted_by(contract, acceptor_id)
+            if not contract.date_started:
+                from .notifications import notify_runners_new_contract
+                notify_runners_new_contract.delay(contract.pk)
 
         updated += 1
 

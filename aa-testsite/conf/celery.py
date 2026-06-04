@@ -40,6 +40,8 @@ app.conf.task_routes = {
     # Utilize a single threaded worker to process these tasks
     # Discord: Multithreads can cause duplicate role creation.
     "discord.*": {"queue": "services"},
+    # Let aa-discordbot consume its own queued tasks.
+    "aadiscordbot.tasks.*": {"queue": "aadiscordbot"},
 }
 
 # Load task modules from all registered Django app configs.

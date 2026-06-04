@@ -1,4 +1,9 @@
+import logging
+
 from django.apps import AppConfig
+
+
+logger = logging.getLogger(__name__)
 
 
 class AaBurnNewEdenConfig(AppConfig):
@@ -8,7 +13,17 @@ class AaBurnNewEdenConfig(AppConfig):
 
     def ready(self):
         from . import signals  # noqa: F401 — connect signal handlers
+        self._log_discordbot_status()
         self._inject_esi_scope()
+
+    @staticmethod
+    def _log_discordbot_status():
+        from django.apps import apps
+
+        if apps.is_installed("aadiscordbot"):
+            logger.info("AA-DiscordBot is installed and available.")
+        else:
+            logger.info("AA-DiscordBot is not installed; Discord integration is unavailable.")
 
     @staticmethod
     def _inject_esi_scope():

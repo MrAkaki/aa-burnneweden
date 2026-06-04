@@ -18,6 +18,7 @@ urlpatterns = [
     path("sync/", views.puller_sync, name="puller_sync"),
     path("puller/add-character/", views.puller_add_character, name="puller_add_character"),
     path("puller/remove-character/", views.puller_remove_character, name="puller_remove_character"),
+    path("discord-settings/", views.discord_settings, name="discord_settings"),
     path("admin/config/", views.admin_config, name="admin_config"),
     path("admin/sync/", views.admin_sync, name="admin_sync"),
     path("corp-sso/post-auth/", views.corp_sso_post_auth, name="corp_sso_post_auth"),
