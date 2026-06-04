@@ -103,6 +103,15 @@ docker compose -f aa-testsite/docker-compose.yml build
 docker compose -f aa-testsite/docker-compose.yml up -d
 ```
 
+### Quick sanity check before opening a PR
+
+Use this lightweight check to verify Python syntax and that the package imports cleanly:
+
+```bash
+python -m compileall -q aa_burnneweden
+python -c "import aa_burnneweden"
+```
+
 ---
 
 ## Enabling optional AA apps
