@@ -48,6 +48,18 @@ These tasks run via Celery and should be scheduled with Celery beat (or `django-
 4. Add the required permissions to your AA groups
 5. Configure a corporation via the Admin panel
 
+## Optional: Discord Direct Messages
+
+If you want to send Discord direct messages to users, install and configure
+`allianceauth-discordbot`.
+
+- App page: https://apps.allianceauth.org/apps/detail/allianceauth-discordbot
+- This integration is optional and not required for core `aa-burnneweden` features.
+
+For the included local testsite (`aa-testsite/`), DM support is enabled only when
+`AA_ENABLE_DISCORDBOT=1` and Discord credentials are configured in
+`aa-testsite/.env`.
+
 ## Collaboration
 
 This repository uses a PR-only workflow.

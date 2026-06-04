@@ -15,7 +15,7 @@ from allianceauth.eveonline.models import EveCharacter, EveCorporationInfo
 from esi.decorators import token_required
 from esi.models import Token
 
-from .models import Contract, OwnerCorporation
+from .models import Contract, DiscordNotificationPreference, OwnerCorporation
 from .tasks import update_all_contracts, update_contracts_for_puller
 
 _PULLER_SSO_SCOPE = "esi-contracts.read_character_contracts.v1"
@@ -95,7 +95,7 @@ def main_view(request):
 
     if is_staff or user.has_perm("aa_burnneweden.puller_access"):
         ctx["show_puller_tab"] = True
-        puller_qs = qs_base if is_staff else qs_base.filter(issuer_user=user)
+        puller_qs = qs_base.filter(issuer_user=user)
         ctx["puller_open"] = puller_qs.open()
         ctx["puller_running"] = puller_qs.accepted()
         ctx["puller_closed"] = puller_qs.filter(
@@ -117,39 +117,34 @@ def main_view(request):
         ctx["show_runner_tab"] = True
         cutoff_7d = now() - timedelta(days=7)
         cutoff_30d = now() - timedelta(days=30)
-        if is_staff:
-            ctx["runner_available"] = qs_base.open()
-            ctx["runner_running"] = qs_base.accepted()
-            ctx["runner_closed"] = qs_base.filter(
-                models.Q(date_completed__isnull=False)
-                | models.Q(date_rejected__isnull=False)
-                | models.Q(esi_status__in=("cancelled", "deleted", "reversed"))
-            )
-        else:
-            my_qs = qs_base.filter(
-                models.Q(accepted_by=user) | models.Q(assigned_runner=user)
-            )
-            ctx["runner_available"] = qs_base.open()
-            ctx["runner_running"] = my_qs.accepted().distinct()
-            ctx["runner_closed"] = my_qs.filter(
-                models.Q(date_completed__isnull=False)
-                | models.Q(date_rejected__isnull=False)
-                | models.Q(esi_status__in=("cancelled", "deleted", "reversed"))
-            ).distinct()
-        # Personal runner stats (always computed, staff see corp-wide)
-        runner_base_qs = qs_base if is_staff else qs_base.filter(
+        my_qs = qs_base.filter(
             models.Q(accepted_by=user) | models.Q(assigned_runner=user)
         )
-        ctx["my_runs_active"] = runner_base_qs.accepted().distinct().count()
-        ctx["my_runs_week"] = runner_base_qs.filter(
-            date_completed__gte=cutoff_7d
-        ).distinct().count()
-        ctx["my_runs_month"] = runner_base_qs.filter(
-            date_completed__gte=cutoff_30d
-        ).distinct().count()
+        ctx["runner_available"] = qs_base.open()
+        ctx["runner_running"] = my_qs.accepted().distinct()
+        ctx["runner_closed"] = my_qs.filter(
+            models.Q(date_completed__isnull=False)
+            | models.Q(date_rejected__isnull=False)
+            | models.Q(esi_status__in=("cancelled", "deleted", "reversed"))
+        ).distinct()
+        ctx["my_runs_active"] = ctx["runner_running"].count()
+        ctx["my_runs_week"] = my_qs.filter(date_completed__gte=cutoff_7d).distinct().count()
+        ctx["my_runs_month"] = my_qs.filter(date_completed__gte=cutoff_30d).distinct().count()
 
     if is_staff:
+        ctx["show_staff_tab"] = True
+        ctx["staff_open"] = qs_base.open()
+        ctx["staff_running"] = qs_base.accepted()
+        ctx["staff_closed"] = qs_base.filter(
+            models.Q(date_completed__isnull=False)
+            | models.Q(date_rejected__isnull=False)
+            | models.Q(esi_status__in=("cancelled", "deleted", "reversed"))
+        )
         ctx["status_choices"] = Contract.STATUSES
+
+    from django.apps import apps as django_apps
+    ctx["discord_available"] = django_apps.is_installed("aadiscordbot")
+    ctx["discord_prefs"], _ = DiscordNotificationPreference.objects.get_or_create(user=user)
 
     return render(request, "aa_burnneweden/main.html", ctx)
 
@@ -322,6 +317,9 @@ def contract_complete(request, pk):
         update_fields.append("staff_notes")
     contract.save(update_fields=update_fields)
 
+    from .notifications import notify_runner_contract_completed
+    notify_runner_contract_completed.delay(contract.pk)
+
     messages.success(request, f"Contract #{contract.contract_id} marked as completed.")
     return _smart_redirect(request)
 
@@ -338,6 +336,9 @@ def contract_cancel(request, pk):
 
     contract.esi_status = "cancelled"
     contract.save(update_fields=["esi_status"])
+
+    from .notifications import notify_runner_contract_canceled
+    notify_runner_contract_canceled.delay(contract.pk)
 
     messages.success(request, f"Contract #{contract.contract_id} cancelled.")
     return _smart_redirect(request)
@@ -368,6 +369,9 @@ def contract_reject(request, pk):
     contract.staff_notes = reason
     contract.save(update_fields=["date_rejected", "rejected_by", "staff_notes"])
 
+    from .notifications import notify_runner_contract_rejected
+    notify_runner_contract_rejected.delay(contract.pk)
+
     messages.success(request, f"Contract #{contract.contract_id} rejected.")
     return _smart_redirect(request)
 
@@ -397,6 +401,52 @@ def contract_reassign(request, pk):
         messages.success(request, f"Contract #{contract.contract_id} unassigned.")
 
     return redirect("aa_burnneweden:contracts_staff")
+
+
+@login_required
+@permission_required("aa_burnneweden.basic_access", raise_exception=True)
+@require_POST
+def discord_settings(request):
+    user = request.user
+    pref, _ = DiscordNotificationPreference.objects.get_or_create(user=user)
+
+    is_runner = (
+        user.has_perm("aa_burnneweden.runner_access")
+        or user.has_perm("aa_burnneweden.staff_access")
+        or user.has_perm("aa_burnneweden.admin_access")
+    )
+    is_puller = (
+        user.has_perm("aa_burnneweden.puller_access")
+        or user.has_perm("aa_burnneweden.staff_access")
+        or user.has_perm("aa_burnneweden.admin_access")
+    )
+
+    if is_runner:
+        pref.notify_contract_created = "notify_contract_created" in request.POST
+        pref.notify_contract_started = "notify_contract_started" in request.POST
+        pref.notify_contract_rejected = "notify_contract_rejected" in request.POST
+        pref.notify_contract_completed = "notify_contract_completed" in request.POST
+    if is_puller:
+        pref.notify_new_open_contracts = "notify_new_open_contracts" in request.POST
+    pref.save()
+
+    enabled = []
+    if pref.notify_contract_created:
+        enabled.append("New contract available")
+    if pref.notify_contract_started:
+        enabled.append("Contract started")
+    if pref.notify_contract_rejected:
+        enabled.append("Contract rejected")
+    if pref.notify_contract_completed:
+        enabled.append("Contract completed / canceled")
+    if pref.notify_new_open_contracts:
+        enabled.append("New open contracts")
+
+    from .notifications import send_discord_confirmation_dm
+    send_discord_confirmation_dm.delay(user.pk, enabled)
+
+    messages.success(request, "Discord notification preferences saved.")
+    return redirect("aa_burnneweden:main_view")
 
 
 @login_required
