@@ -21,7 +21,7 @@ x-allianceauth-base: &allianceauth-base
 
 services:
   redis:
-    image: redis:8-alpine
+    image: docker.io/library/redis:8-alpine
     restart: unless-stopped
     volumes:
       - redis-data:/data
