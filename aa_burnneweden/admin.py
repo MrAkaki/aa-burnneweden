@@ -1,7 +1,7 @@
 from django.contrib import admin
 
 from .models import Contract, ContractItem, OwnerCorporation
-from .tasks import update_contracts_for_corporation
+from .tasks import sync_contracts
 
 
 class ContractItemInline(admin.TabularInline):
@@ -17,13 +17,10 @@ class OwnerCorporationAdmin(admin.ModelAdmin):
     list_filter = ("is_active",)
     actions = ["trigger_sync"]
 
-    @admin.action(description="Trigger ESI sync for selected corporations")
+    @admin.action(description="Trigger ESI sync for all active corporations")
     def trigger_sync(self, request, queryset):
-        count = 0
-        for owner in queryset:
-            update_contracts_for_corporation.delay(owner.pk)
-            count += 1
-        self.message_user(request, f"Queued ESI sync for {count} corporation(s).")
+        sync_contracts.delay()
+        self.message_user(request, "Queued full ESI sync for all active corporations.")
 
 
 @admin.register(Contract)
@@ -39,6 +36,7 @@ class ContractAdmin(admin.ModelAdmin):
         "date_issued",
         "date_started",
         "date_completed",
+        "date_cancelled",
         "date_rejected",
     )
     list_filter = ("esi_status", "owner_corporation")
@@ -48,15 +46,18 @@ class ContractAdmin(admin.ModelAdmin):
         "owner_corporation",
         "issuer_character",
         "issuer_user",
+        "acceptor_character",
         "esi_status",
         "date_issued",
         "date_expired",
         "date_started",
         "date_completed",
+        "date_cancelled",
         "date_rejected",
         "accepted_by",
         "completed_by",
         "rejected_by",
+        "cancelled_by",
         "price",
         "reward",
         "volume",
@@ -67,6 +68,7 @@ class ContractAdmin(admin.ModelAdmin):
         "owner_corporation",
         "issuer_character",
         "issuer_user",
+        "acceptor_character",
         "title",
         "price",
         "reward",
@@ -75,11 +77,13 @@ class ContractAdmin(admin.ModelAdmin):
         "date_expired",
         "date_started",
         "date_completed",
+        "date_cancelled",
         "date_rejected",
         "esi_status",
         "accepted_by",
         "completed_by",
         "rejected_by",
+        "cancelled_by",
         "assigned_runner",
         "staff_notes",
     )

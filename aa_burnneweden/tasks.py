@@ -8,33 +8,27 @@ from django.utils.timezone import now
 
 logger = get_task_logger(__name__)
 
+_PULLER_ESI_SCOPE = "esi-contracts.read_character_contracts.v1"
+
 
 @shared_task
-def update_all_contracts():
+def sync_contracts():
+    """Single periodic task: sync all corp contracts, resolve issuers and acceptors."""
     from .models import OwnerCorporation
 
-    corp_pks = list(
-        OwnerCorporation.objects.filter(is_active=True).values_list("pk", flat=True)
+    owners = list(
+        OwnerCorporation.objects.filter(is_active=True).select_related("corporation", "character")
     )
-    for pk in corp_pks:
-        update_contracts_for_corporation.delay(pk)
-    logger.info("Queued contract sync for %d corporations.", len(corp_pks))
+    for owner in owners:
+        _sync_corp(owner)
+    logger.info("sync_contracts: processed %d owner corporation(s).", len(owners))
 
 
-@shared_task
-def update_contracts_for_corporation(owner_corp_pk: int):
+def _sync_corp(owner):
     from esi.models import Token
 
-    from .models import Contract, ContractItem, OwnerCorporation
+    from .models import Contract, DELETE_ESI_STATUSES, REJECT_ESI_STATUSES
     from .providers import esi
-
-    try:
-        owner = OwnerCorporation.objects.select_related(
-            "corporation", "character"
-        ).get(pk=owner_corp_pk)
-    except OwnerCorporation.DoesNotExist:
-        logger.error("OwnerCorporation pk=%d not found.", owner_corp_pk)
-        return
 
     corp_id = owner.corporation.corporation_id
     character_id = owner.character.character_id
@@ -66,8 +60,6 @@ def update_contracts_for_corporation(owner_corp_pk: int):
         logger.exception("ESI fetch failed for corp %d.", corp_id)
         return
 
-    from .models import CANCELLED_ESI_STATUSES
-
     updated = 0
     for raw in raw_contracts:
         if raw.type != "item_exchange":
@@ -75,8 +67,7 @@ def update_contracts_for_corporation(owner_corp_pk: int):
         if raw.assignee_id != corp_id:
             continue
 
-        # ESI-cancelled/deleted/reversed contracts are not tracked — remove if present.
-        if raw.status in CANCELLED_ESI_STATUSES:
+        if raw.status in DELETE_ESI_STATUSES:
             deleted, _ = Contract.objects.filter(
                 owner_corporation=owner,
                 contract_id=raw.contract_id,
@@ -86,6 +77,26 @@ def update_contracts_for_corporation(owner_corp_pk: int):
                     "Removed ESI-%s contract %d for corp %d.",
                     raw.status, raw.contract_id, corp_id,
                 )
+            continue
+
+        if raw.status in REJECT_ESI_STATUSES:
+            rejection_date = getattr(raw, "date_expired", None) or now()
+            updated_count = Contract.objects.filter(
+                owner_corporation=owner,
+                contract_id=raw.contract_id,
+                date_rejected__isnull=True,
+            ).update(esi_status=raw.status, date_rejected=rejection_date)
+            if updated_count:
+                logger.info(
+                    "Auto-rejected ESI-%s contract %d for corp %d.",
+                    raw.status, raw.contract_id, corp_id,
+                )
+            else:
+                # Ensure esi_status is kept current even if date_rejected already set
+                Contract.objects.filter(
+                    owner_corporation=owner,
+                    contract_id=raw.contract_id,
+                ).update(esi_status=raw.status)
             continue
 
         issuer_char, issuer_user = _resolve_issuer(raw.issuer_id)
@@ -103,9 +114,7 @@ def update_contracts_for_corporation(owner_corp_pk: int):
                 "date_issued": raw.date_issued,
                 "date_expired": raw.date_expired,
                 "date_started": raw.date_accepted,
-                # date_completed is app-managed (set via contract_complete view);
-                # never import it from ESI — a contract completed in-game should
-                # appear as "running" until a runner marks it done in the app.
+                # date_completed/date_rejected/date_cancelled are app-managed; never import from ESI
                 "esi_status": raw.status,
             },
         )
@@ -115,9 +124,7 @@ def update_contracts_for_corporation(owner_corp_pk: int):
             contract.esi_status = raw.status
             prev_started = contract.date_started
             contract.date_started = raw.date_accepted
-            # date_completed and date_rejected are app-managed — never overwrite them
 
-            # Backfill issuer_character / issuer_user if missing at import time
             if not contract.issuer_character_id and issuer_char:
                 contract.issuer_character = issuer_char
                 update_fields.append("issuer_character")
@@ -131,7 +138,6 @@ def update_contracts_for_corporation(owner_corp_pk: int):
                 from .notifications import notify_runner_contract_started
                 notify_runner_contract_started.delay(contract.pk)
 
-            # Resolve accepted_by from ESI acceptor_id if not yet set
             acceptor_id = getattr(raw, "acceptor_id", None)
             if acceptor_id and not contract.accepted_by_id:
                 _resolve_accepted_by(contract, acceptor_id)
@@ -152,9 +158,6 @@ def update_contracts_for_corporation(owner_corp_pk: int):
     logger.info("Synced %d item-exchange contracts for corp %d.", updated, corp_id)
 
 
-_PULLER_ESI_SCOPE = "esi-contracts.read_character_contracts.v1"
-
-
 @shared_task
 def update_contracts_for_puller(user_pk: int):
     from esi.models import Token
@@ -173,7 +176,7 @@ def update_contracts_for_puller(user_pk: int):
 def update_contracts_for_character(character_id: int, user_pk: int):
     from esi.models import Token
 
-    from .models import Contract, OwnerCorporation
+    from .models import Contract, DELETE_ESI_STATUSES, REJECT_ESI_STATUSES, OwnerCorporation
     from .providers import esi
 
     token = (
@@ -209,8 +212,6 @@ def update_contracts_for_character(character_id: int, user_pk: int):
         logger.exception("ESI fetch failed for character %d.", character_id)
         return
 
-    from .models import CANCELLED_ESI_STATUSES
-
     issuer_char, issuer_user = _resolve_issuer(character_id)
     updated = 0
     for raw in raw_contracts:
@@ -220,8 +221,7 @@ def update_contracts_for_character(character_id: int, user_pk: int):
         if not owner:
             continue
 
-        # ESI-cancelled/deleted/reversed contracts are not tracked — remove if present.
-        if raw.status in CANCELLED_ESI_STATUSES:
+        if raw.status in DELETE_ESI_STATUSES:
             deleted, _ = Contract.objects.filter(
                 owner_corporation=owner,
                 contract_id=raw.contract_id,
@@ -231,6 +231,19 @@ def update_contracts_for_character(character_id: int, user_pk: int):
                     "Removed ESI-%s contract %d (character %d).",
                     raw.status, raw.contract_id, character_id,
                 )
+            continue
+
+        if raw.status in REJECT_ESI_STATUSES:
+            rejection_date = getattr(raw, "date_expired", None) or now()
+            Contract.objects.filter(
+                owner_corporation=owner,
+                contract_id=raw.contract_id,
+                date_rejected__isnull=True,
+            ).update(esi_status=raw.status, date_rejected=rejection_date)
+            Contract.objects.filter(
+                owner_corporation=owner,
+                contract_id=raw.contract_id,
+            ).update(esi_status=raw.status)
             continue
 
         contract, created = Contract.objects.get_or_create(
@@ -246,7 +259,6 @@ def update_contracts_for_character(character_id: int, user_pk: int):
                 "date_issued": raw.date_issued,
                 "date_expired": raw.date_expired,
                 "date_started": raw.date_accepted,
-                # date_completed is app-managed — never import from ESI
                 "esi_status": raw.status,
             },
         )
@@ -256,9 +268,7 @@ def update_contracts_for_character(character_id: int, user_pk: int):
             contract.esi_status = raw.status
             prev_started = contract.date_started
             contract.date_started = raw.date_accepted
-            # date_completed and date_rejected are app-managed — never overwrite them
 
-            # Backfill issuer_character / issuer_user if missing at import time
             if not contract.issuer_character_id and issuer_char:
                 contract.issuer_character = issuer_char
                 update_fields.append("issuer_character")
@@ -317,52 +327,6 @@ def _fetch_character_contract_items(character_id: int, contract, token):
     ContractItem.objects.bulk_create(objs, ignore_conflicts=True)
 
 
-@shared_task
-def resolve_contract_issuers():
-    from allianceauth.eveonline.models import EveCharacter
-
-    from .models import Contract
-
-    unresolved = Contract.objects.filter(issuer_user__isnull=True).exclude(
-        issuer_character__isnull=True
-    )
-
-    resolved = 0
-    for contract in unresolved.select_related("issuer_character"):
-        try:
-            char = EveCharacter.objects.get(
-                character_id=contract.issuer_character.character_id
-            )
-            if char.userprofile:
-                contract.issuer_user = char.userprofile.user
-                contract.save(update_fields=["issuer_user"])
-                resolved += 1
-        except (EveCharacter.DoesNotExist, AttributeError):
-            pass
-
-    logger.info("Resolved issuers for %d contracts.", resolved)
-
-
-@shared_task
-def resolve_contract_acceptors():
-    from allianceauth.eveonline.models import EveCharacter
-
-    from .models import Contract
-
-    # Back-fill accepted_by on contracts that have date_started but no accepted_by
-    unresolved = Contract.objects.filter(
-        date_started__isnull=False,
-        accepted_by__isnull=True,
-    )
-
-    resolved = 0
-    for contract in unresolved:
-        # No ESI acceptor_id stored — skip; will be resolved on next sync
-        pass
-
-    logger.info("Resolved acceptors for %d contracts.", resolved)
-
-
 def _resolve_character(character_id: int):
     from allianceauth.eveonline.models import EveCharacter
 
@@ -371,7 +335,6 @@ def _resolve_character(character_id: int):
     except EveCharacter.DoesNotExist:
         pass
 
-    # Character not in AA yet — fetch it from ESI and create the record.
     try:
         return EveCharacter.objects.create_character(character_id)
     except Exception:
@@ -380,12 +343,6 @@ def _resolve_character(character_id: int):
 
 
 def _resolve_issuer(character_id: int):
-    """Return (EveCharacter, User) for the given ESI character id in one step.
-
-    Creates the EveCharacter from ESI if it isn't in AA yet, then immediately
-    looks up the linked AA user so callers never need a separate resolve task.
-    Returns (None, None) when the character cannot be resolved at all.
-    """
     char = _resolve_character(character_id)
     if char is None:
         return None, None
@@ -400,27 +357,35 @@ def _resolve_issuer(character_id: int):
 def _resolve_accepted_by(contract, acceptor_id: int):
     from allianceauth.eveonline.models import EveCharacter
 
-    try:
-        char = EveCharacter.objects.get(character_id=acceptor_id)
-    except EveCharacter.DoesNotExist:
+    char = _resolve_character(acceptor_id)
+    if char is None:
         return
 
-    user = None
-    try:
-        user = char.userprofile.user
-    except AttributeError:
-        pass
+    update_fields = []
+    if not contract.acceptor_character_id:
+        contract.acceptor_character = char
+        update_fields.append("acceptor_character")
 
-    if user is None:
+    if not contract.accepted_by_id:
+        user = None
         try:
-            from allianceauth.authentication.models import CharacterOwnership
-            user = CharacterOwnership.objects.select_related("user").get(character=char).user
-        except Exception:
+            user = char.userprofile.user
+        except AttributeError:
             pass
 
-    if user:
-        contract.accepted_by = user
-        contract.save(update_fields=["accepted_by"])
+        if user is None:
+            try:
+                from allianceauth.authentication.models import CharacterOwnership
+                user = CharacterOwnership.objects.select_related("user").get(character=char).user
+            except Exception:
+                pass
+
+        if user:
+            contract.accepted_by = user
+            update_fields.append("accepted_by")
+
+    if update_fields:
+        contract.save(update_fields=update_fields)
 
 
 def _fetch_contract_items(owner, contract, token):

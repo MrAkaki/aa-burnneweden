@@ -6,7 +6,8 @@ from allianceauth.eveonline.models import EveCharacter, EveCorporationInfo
 
 from .managers import ContractManager
 
-CANCELLED_ESI_STATUSES = ("cancelled", "deleted", "reversed")
+DELETE_ESI_STATUSES = ("cancelled", "deleted", "reversed")
+REJECT_ESI_STATUSES = ("rejected", "expired")
 
 
 class OwnerCorporation(models.Model):
@@ -35,7 +36,7 @@ class OwnerCorporation(models.Model):
 class Contract(models.Model):
     STATUSES = [
         ("open", _("Open")),
-        ("accepted", _("Accepted")),
+        ("running", _("Running")),
         ("completed", _("Completed")),
         ("cancelled", _("Cancelled")),
         ("rejected", _("Rejected")),
@@ -69,7 +70,15 @@ class Contract(models.Model):
     date_started = models.DateTimeField(null=True, blank=True)
     date_completed = models.DateTimeField(null=True, blank=True)
     date_rejected = models.DateTimeField(null=True, blank=True)
+    date_cancelled = models.DateTimeField(null=True, blank=True)
     esi_status = models.CharField(max_length=32)
+    acceptor_character = models.ForeignKey(
+        EveCharacter,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="burner_contracts_accepted_char",
+    )
     accepted_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -98,6 +107,13 @@ class Contract(models.Model):
         blank=True,
         related_name="burner_contracts_rejected",
     )
+    cancelled_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="burner_contracts_cancelled",
+    )
     staff_notes = models.TextField(blank=True)
     discord_dm_sent = models.BooleanField(default=False)
 
@@ -120,10 +136,10 @@ class Contract(models.Model):
             return "rejected"
         if self.date_completed:
             return "completed"
-        if self.esi_status in CANCELLED_ESI_STATUSES:
+        if self.date_cancelled:
             return "cancelled"
         if self.date_started:
-            return "accepted"
+            return "running"
         return "open"
 
     @property
@@ -164,6 +180,21 @@ class Contract(models.Model):
         return "-"
 
     @property
+    def acceptor_display(self):
+        """Character name or username for whoever accepted the contract."""
+        if self.accepted_by_id:
+            try:
+                main = self.accepted_by.profile.main_character
+                if main:
+                    return main.character_name
+            except Exception:
+                pass
+            return self.accepted_by.username
+        if self.acceptor_character_id:
+            return self.acceptor_character.character_name
+        return "-"
+
+    @property
     def runner_main_name(self):
         """Display name for the effective runner (assigned > accepted): main char name or username fallback."""
         user = self.assigned_runner or self.accepted_by
@@ -175,6 +206,8 @@ class Contract(models.Model):
             except Exception:
                 pass
             return user.username
+        if self.acceptor_character_id:
+            return self.acceptor_character.character_name
         return "-"
 
     def __str__(self):

@@ -51,14 +51,17 @@
                     <dt class="col-sm-4">{% trans "Started" %}</dt>
                     <dd class="col-sm-8">{{ contract.date_started }}</dd>
                     {% endif %}
-                    {% if contract.date_rejected %}
-                    <dt class="col-sm-4">{% trans "Rejected" %}</dt>
-                    <dd class="col-sm-8">{{ contract.date_rejected }}</dd>
-                    {% endif %}
-
                     {% if contract.date_completed %}
                     <dt class="col-sm-4">{% trans "Completed" %}</dt>
                     <dd class="col-sm-8">{{ contract.date_completed }}</dd>
+                    {% endif %}
+                    {% if contract.date_cancelled %}
+                    <dt class="col-sm-4">{% trans "Cancelled" %}</dt>
+                    <dd class="col-sm-8">{{ contract.date_cancelled }}</dd>
+                    {% endif %}
+                    {% if contract.date_rejected %}
+                    <dt class="col-sm-4">{% trans "Rejected" %}</dt>
+                    <dd class="col-sm-8">{{ contract.date_rejected }}</dd>
                     {% endif %}
                 </dl>
             </div>
@@ -82,8 +85,8 @@
 
                     <dt class="col-sm-4">{% trans "Accepted by" %}</dt>
                     <dd class="col-sm-8">
-                        {% if contract.accepted_by %}
-                            <span class="text-white">{{ contract.accepted_by.profile.main_character.character_name|default:contract.accepted_by.username }}</span>
+                        {% if contract.accepted_by or contract.acceptor_character %}
+                            <span class="text-white">{{ contract.acceptor_display }}</span>
                         {% else %}-{% endif %}
                     </dd>
 

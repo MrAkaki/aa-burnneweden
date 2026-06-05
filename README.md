@@ -42,7 +42,7 @@ These tasks run via Celery and should be scheduled with Celery beat (or `django-
 
 ## Installation
 
-1. `pip install git+ssh://git@github.com/MrAkaki/aa-burnneweden.git@main`
+1. `pip install git+https://github.com/MrAkaki/aa-burnneweden.git@main`
 2. Add `aa_burnneweden` to `INSTALLED_APPS`
 3. Run `python manage.py migrate`
 4. Add the required permissions to your AA groups

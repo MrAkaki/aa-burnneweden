@@ -73,16 +73,16 @@
                         <td>{{ contract.date_started|date:"Y-m-d H:i"|default:"-" }}</td>
                         <td class="text-end">
                             <a href="{% url 'aa_burnneweden:contract_detail' contract.pk %}" class="btn btn-sm btn-outline-secondary me-1">{% trans "Details" %}</a>
-                            {% if contract.status == 'accepted' %}
+                            {% if contract.status == 'running' %}
                                 <button class="btn btn-sm btn-success me-1"
                                     data-bs-toggle="modal" data-bs-target="#completeModal"
                                     data-contract-pk="{{ contract.pk }}" data-contract-id="{{ contract.contract_id }}">
                                     {% trans "Complete" %}
                                 </button>
-                                <button class="btn btn-sm btn-outline-danger"
-                                    data-bs-toggle="modal" data-bs-target="#rejectModal"
+                                <button class="btn btn-sm btn-outline-secondary"
+                                    data-bs-toggle="modal" data-bs-target="#cancelModal"
                                     data-contract-pk="{{ contract.pk }}" data-contract-id="{{ contract.contract_id }}">
-                                    {% trans "Reject" %}
+                                    {% trans "Cancel" %}
                                 </button>
                             {% endif %}
                         </td>
@@ -112,7 +112,7 @@
                     <textarea name="comment" id="completeComment" class="form-control" rows="3" placeholder="{% trans 'Add a note about this run...' %}"></textarea>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Close" %}</button>
                     <button type="submit" class="btn btn-success">{% trans "Mark as Completed" %}</button>
                 </div>
             </form>
@@ -120,24 +120,23 @@
     </div>
 </div>
 
-{# Reject modal #}
-<div class="modal fade" id="rejectModal" tabindex="-1" aria-labelledby="rejectModalLabel" aria-hidden="true">
+{# Cancel modal #}
+<div class="modal fade" id="cancelModal" tabindex="-1" aria-labelledby="cancelModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="rejectModalLabel">{% trans "Reject Contract" %}</h5>
+                <h5 class="modal-title" id="cancelModalLabel">{% trans "Cancel Contract" %}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form method="post" id="rejectForm" action="">
+            <form method="post" id="cancelForm" action="">
                 {% csrf_token %}
                 <div class="modal-body">
-                    <p id="rejectContractLabel" class="text-muted small"></p>
-                    <label for="rejectReason" class="form-label">{% trans "Reason" %} <span class="text-danger">*</span></label>
-                    <textarea name="reason" id="rejectReason" class="form-control" rows="3" required placeholder="{% trans 'Explain why this contract is being rejected...' %}"></textarea>
+                    <p id="cancelContractLabel" class="text-muted small"></p>
+                    <p class="small">{% trans "Use this when you had an issue and have returned the ISK to the issuer." %}</p>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
-                    <button type="submit" class="btn btn-danger">{% trans "Reject Contract" %}</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Close" %}</button>
+                    <button type="submit" class="btn btn-outline-secondary">{% trans "Cancel Contract" %}</button>
                 </div>
             </form>
         </div>
@@ -157,13 +156,12 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    var rejectModal = document.getElementById('rejectModal');
-    if (rejectModal) {
-        rejectModal.addEventListener('show.bs.modal', function (event) {
+    var cancelModal = document.getElementById('cancelModal');
+    if (cancelModal) {
+        cancelModal.addEventListener('show.bs.modal', function (event) {
             var btn = event.relatedTarget;
-            document.getElementById('rejectForm').action = '/burnneweden/' + btn.getAttribute('data-contract-pk') + '/reject/';
-            document.getElementById('rejectContractLabel').textContent = 'Contract #' + btn.getAttribute('data-contract-id');
-            document.getElementById('rejectReason').value = '';
+            document.getElementById('cancelForm').action = '/burnneweden/' + btn.getAttribute('data-contract-pk') + '/cancel/';
+            document.getElementById('cancelContractLabel').textContent = 'Contract #' + btn.getAttribute('data-contract-id');
         });
     }
 });
