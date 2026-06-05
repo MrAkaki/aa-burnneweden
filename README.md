@@ -6,9 +6,13 @@ Alliance Auth plugin for managing EVE Online corporation burner contracts.
 
 - ESI auto-sync of corporation item-exchange contracts
 - Role-based access: Pullers, Runners, Staff, Admin
-- Staff can reject, reassign, cancel, or complete any contract
-- Runners claim open contracts and mark them complete/cancelled
-- Pullers see only their own submitted contracts
+- Contract lifecycle: open → running → completed / rejected / cancelled
+- Runners claim open contracts and mark them complete or cancelled
+- Pullers see only their own submitted contracts and can trigger per-character ESI sync
+- Staff can reject, reassign, force-cancel, or bulk-action any contract
+- Bulk complete / reject / cancel for multiple contracts at once
+- Statistics dashboard (open, running, completions by day/week/month)
+- Optional Discord DM notifications with per-user, per-event opt-in
 
 ## Celery Tasks
 
@@ -18,27 +22,20 @@ These tasks run via Celery and should be scheduled with Celery beat (or `django-
 
 | Task | Recommended interval | Description |
 |---|---|---|
-| `update_all_contracts` | Every 15–30 min | Queues an ESI sync for each active owner corporation. ESI caches contract data for ~15 min, so polling faster than that has no effect. |
-| `resolve_contract_issuers` | Every 30–60 min | Back-fills `issuer_user` for contracts imported before the issuer was linked in Alliance Auth. |
-
-### Internal tasks (do not schedule directly)
-
-| Task | Trigger | Description |
-|---|---|---|
-| `update_contracts_for_corporation` | Called by `update_all_contracts` | Fetches corporation item-exchange contracts, upserts contract rows, and fetches items for newly created contracts. |
-| `update_contracts_for_character` | Called by `update_contracts_for_puller` | Fetches character contracts for one puller character and imports contracts assigned to configured owner corporations. |
+| `sync_contracts` | Every 15–30 min | Syncs all active owner corporations: upserts contracts, handles ESI-cancelled/expired/rejected statuses, resolves issuers and acceptors. ESI caches contract data for ~15 min so polling faster has no effect. |
+| `notify_pullers_open_contracts` | Every 15–30 min | Sends Discord DMs to opted-in pullers about new open contracts that have not yet been announced. No-op when `aadiscordbot` is not installed. |
 
 ### User-triggered tasks
 
 | Task | Trigger | Description |
 |---|---|---|
-| `update_contracts_for_puller` | Puller sync action in UI | Queues per-character sync tasks for a user based on their linked puller tokens. |
+| `update_contracts_for_puller` | Puller sync button in UI | Queues per-character sync tasks for the current user based on their linked puller ESI tokens. |
 
-### Optional utility task
+### Internal tasks (do not schedule directly)
 
-| Task | Recommended interval | Description |
+| Task | Trigger | Description |
 |---|---|---|
-| `resolve_contract_acceptors` | Optional / on-demand | Placeholder task for accepted-by backfill; currently logs only and does not modify records. |
+| `update_contracts_for_character` | Called by `update_contracts_for_puller` | Fetches character contracts for one puller character and imports those assigned to configured owner corporations. |
 
 ## Installation
 
@@ -46,15 +43,22 @@ These tasks run via Celery and should be scheduled with Celery beat (or `django-
 2. Add `aa_burnneweden` to `INSTALLED_APPS`
 3. Run `python manage.py migrate`
 4. Add the required permissions to your AA groups
-5. Configure a corporation via the Admin panel
+5. Configure a corporation via the in-app admin config page (uses SSO — no Django admin panel needed)
+
+### Required ESI scopes
+
+| Scope | Used by |
+|---|---|
+| `esi-contracts.read_corporation_contracts.v1` | Corporation sync (`sync_contracts`) |
+| `esi-contracts.read_character_contracts.v1` | Puller sync (`update_contracts_for_puller`) |
 
 ## Optional: Discord Direct Messages
 
-If you want to send Discord direct messages to users, install and configure
-`allianceauth-discordbot`.
+If you want Discord direct messages to users, install and configure `allianceauth-discordbot`.
 
 - App page: https://apps.allianceauth.org/apps/detail/allianceauth-discordbot
 - This integration is optional and not required for core `aa-burnneweden` features.
+- All notification tasks are no-ops when `aadiscordbot` is not installed.
 
 ### Minimum configuration
 
@@ -78,6 +82,19 @@ DISCORD_CALLBACK_URL = f"{SITE_URL}/discord/callback/"
 ```
 
 For the local testsite (`aa-testsite/`), set the above values in `aa-testsite/.env`.
+
+### Discord notification events
+
+Users opt in per-event from the Notifications tab in the app:
+
+| Event | Who receives it |
+|---|---|
+| New contract available | Runners (opted in) |
+| Contract started | The assigned runner |
+| Contract rejected | The assigned runner |
+| Contract completed | The assigned runner |
+| Contract canceled | The assigned runner |
+| New open contracts | Pullers (opted in) |
 
 ## Collaboration
 
