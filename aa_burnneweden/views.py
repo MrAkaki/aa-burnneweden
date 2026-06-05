@@ -8,6 +8,7 @@ from django.db.models import Count, DurationField, ExpressionWrapper, F
 from django.db.models.functions import TruncDate
 from django.http import HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils.timezone import now
 from django.views.decorators.http import require_POST
 
@@ -172,14 +173,14 @@ def dashboard(request):
 def puller_sync(request):
     update_contracts_for_puller.delay(request.user.pk)
     messages.success(request, "Sync queued — your contracts will refresh shortly.")
-    return redirect("aa_burnneweden:main_view")
+    return redirect(reverse("aa_burnneweden:main_view") + "?tab=tab-puller")
 
 
 @login_required
 @permission_required("aa_burnneweden.puller_access", raise_exception=True)
 @token_required(new=True, scopes=_PULLER_SSO_SCOPE)
 def puller_add_character(request, token):
-    return redirect("aa_burnneweden:main_view")
+    return redirect(reverse("aa_burnneweden:main_view") + "?tab=tab-dashboard")
 
 
 @login_required
@@ -199,7 +200,7 @@ def puller_remove_character(request):
             messages.success(request, "Character removed from contract sync.")
         else:
             messages.warning(request, "Character not found.")
-    return redirect("aa_burnneweden:main_view")
+    return redirect(reverse("aa_burnneweden:main_view") + "?tab=tab-dashboard")
 
 
 @login_required
@@ -377,6 +378,91 @@ def contract_reject(request, pk):
 
 
 @login_required
+@permission_required("aa_burnneweden.runner_access", raise_exception=True)
+@require_POST
+def bulk_complete(request):
+    user = request.user
+    is_staff = user.has_perm("aa_burnneweden.staff_access") or user.has_perm("aa_burnneweden.admin_access")
+    pks = request.POST.getlist("pks")
+
+    qs = Contract.objects.accepted().filter(pk__in=pks)
+    if not is_staff:
+        qs = qs.filter(models.Q(accepted_by=user) | models.Q(assigned_runner=user))
+
+    from .notifications import notify_runner_contract_completed
+    count = 0
+    for contract in qs:
+        contract.date_completed = now()
+        contract.completed_by = user
+        contract.save(update_fields=["date_completed", "completed_by"])
+        notify_runner_contract_completed.delay(contract.pk)
+        count += 1
+
+    if count:
+        messages.success(request, f"{count} contract(s) marked as completed.")
+    else:
+        messages.warning(request, "No eligible contracts were found.")
+    return _smart_redirect(request)
+
+
+@login_required
+@permission_required("aa_burnneweden.runner_access", raise_exception=True)
+@require_POST
+def bulk_reject(request):
+    user = request.user
+    is_staff = user.has_perm("aa_burnneweden.staff_access") or user.has_perm("aa_burnneweden.admin_access")
+    pks = request.POST.getlist("pks")
+    reason = request.POST.get("reason", "").strip()
+
+    if not reason:
+        messages.error(request, "A rejection reason is required.")
+        return _smart_redirect(request)
+
+    qs = Contract.objects.accepted().filter(pk__in=pks)
+    if not is_staff:
+        qs = qs.filter(models.Q(accepted_by=user) | models.Q(assigned_runner=user))
+
+    from .notifications import notify_runner_contract_rejected
+    count = 0
+    for contract in qs:
+        contract.date_rejected = now()
+        contract.rejected_by = user
+        contract.staff_notes = reason
+        contract.save(update_fields=["date_rejected", "rejected_by", "staff_notes"])
+        notify_runner_contract_rejected.delay(contract.pk)
+        count += 1
+
+    if count:
+        messages.success(request, f"{count} contract(s) rejected.")
+    else:
+        messages.warning(request, "No eligible contracts were found.")
+    return _smart_redirect(request)
+
+
+@login_required
+@permission_required("aa_burnneweden.staff_access", raise_exception=True)
+@require_POST
+def bulk_cancel(request):
+    pks = request.POST.getlist("pks")
+
+    qs = Contract.objects.active().filter(pk__in=pks)
+
+    from .notifications import notify_runner_contract_canceled
+    count = 0
+    for contract in qs:
+        contract.esi_status = "cancelled"
+        contract.save(update_fields=["esi_status"])
+        notify_runner_contract_canceled.delay(contract.pk)
+        count += 1
+
+    if count:
+        messages.success(request, f"{count} contract(s) cancelled.")
+    else:
+        messages.warning(request, "No eligible contracts were found.")
+    return _smart_redirect(request)
+
+
+@login_required
 @permission_required("aa_burnneweden.staff_access", raise_exception=True)
 @require_POST
 def contract_reassign(request, pk):
@@ -446,7 +532,7 @@ def discord_settings(request):
     send_discord_confirmation_dm.delay(user.pk, enabled)
 
     messages.success(request, "Discord notification preferences saved.")
-    return redirect("aa_burnneweden:main_view")
+    return redirect(reverse("aa_burnneweden:main_view") + "?tab=tab-notifications")
 
 
 @login_required
@@ -498,5 +584,14 @@ def corp_sso_post_auth(request, token):
     return redirect("aa_burnneweden:admin_config")
 
 
+_VALID_TABS = frozenset(
+    {"tab-dashboard", "tab-puller", "tab-runner", "tab-staff", "tab-notifications"}
+)
+
+
 def _smart_redirect(request):
-    return redirect("aa_burnneweden:main_view")
+    tab = request.POST.get("active_tab", "")
+    base = reverse("aa_burnneweden:main_view")
+    if tab in _VALID_TABS:
+        return redirect(f"{base}?tab={tab}")
+    return redirect(base)

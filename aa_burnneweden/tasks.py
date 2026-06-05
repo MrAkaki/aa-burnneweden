@@ -402,11 +402,25 @@ def _resolve_accepted_by(contract, acceptor_id: int):
 
     try:
         char = EveCharacter.objects.get(character_id=acceptor_id)
-        if char.userprofile:
-            contract.accepted_by = char.userprofile.user
-            contract.save(update_fields=["accepted_by"])
-    except (EveCharacter.DoesNotExist, AttributeError):
+    except EveCharacter.DoesNotExist:
+        return
+
+    user = None
+    try:
+        user = char.userprofile.user
+    except AttributeError:
         pass
+
+    if user is None:
+        try:
+            from allianceauth.authentication.models import CharacterOwnership
+            user = CharacterOwnership.objects.select_related("user").get(character=char).user
+        except Exception:
+            pass
+
+    if user:
+        contract.accepted_by = user
+        contract.save(update_fields=["accepted_by"])
 
 
 def _fetch_contract_items(owner, contract, token):
