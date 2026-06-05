@@ -17,7 +17,7 @@ from esi.decorators import token_required
 from esi.models import Token
 
 from .models import Contract, DiscordNotificationPreference, OwnerCorporation
-from .tasks import update_all_contracts, update_contracts_for_puller
+from .tasks import sync_contracts, update_contracts_for_puller
 
 _PULLER_SSO_SCOPE = "esi-contracts.read_character_contracts.v1"
 
@@ -57,7 +57,7 @@ def _get_stats():
 
     return {
         "stat_open": Contract.objects.open().count(),
-        "stat_running": Contract.objects.accepted().count(),
+        "stat_running": Contract.objects.running().count(),
         "stat_closed_24h": Contract.objects.filter(date_completed__gte=cutoff_24h).count(),
         "stat_fast_done": fast_done,
         "stat_completed_week": Contract.objects.filter(date_completed__gte=cutoff_7d).count(),
@@ -98,12 +98,8 @@ def main_view(request):
         ctx["show_puller_tab"] = True
         puller_qs = qs_base.filter(issuer_user=user)
         ctx["puller_open"] = puller_qs.open()
-        ctx["puller_running"] = puller_qs.accepted()
-        ctx["puller_closed"] = puller_qs.filter(
-            models.Q(date_completed__isnull=False)
-            | models.Q(date_rejected__isnull=False)
-            | models.Q(esi_status__in=("cancelled", "deleted", "reversed"))
-        )
+        ctx["puller_running"] = puller_qs.running()
+        ctx["puller_closed"] = puller_qs.closed()
         from esi.models import Token as EsiToken
         puller_tokens = EsiToken.objects.filter(user=user, scopes__name=_PULLER_SSO_SCOPE)
         ctx["puller_characters"] = list(
@@ -111,7 +107,7 @@ def main_view(request):
         )
         ctx["has_puller_token"] = puller_tokens.exists()
         ctx["my_open"] = Contract.objects.filter(issuer_user=user).open().count()
-        ctx["my_running"] = Contract.objects.filter(issuer_user=user).accepted().count()
+        ctx["my_running"] = Contract.objects.filter(issuer_user=user).running().count()
         ctx["my_completed"] = Contract.objects.filter(issuer_user=user, date_completed__isnull=False).count()
 
     if is_staff or user.has_perm("aa_burnneweden.runner_access"):
@@ -122,12 +118,8 @@ def main_view(request):
             models.Q(accepted_by=user) | models.Q(assigned_runner=user)
         )
         ctx["runner_available"] = qs_base.open()
-        ctx["runner_running"] = my_qs.accepted().distinct()
-        ctx["runner_closed"] = my_qs.filter(
-            models.Q(date_completed__isnull=False)
-            | models.Q(date_rejected__isnull=False)
-            | models.Q(esi_status__in=("cancelled", "deleted", "reversed"))
-        ).distinct()
+        ctx["runner_running"] = my_qs.running().distinct()
+        ctx["runner_closed"] = my_qs.closed().distinct()
         ctx["my_runs_active"] = ctx["runner_running"].count()
         ctx["my_runs_week"] = my_qs.filter(date_completed__gte=cutoff_7d).distinct().count()
         ctx["my_runs_month"] = my_qs.filter(date_completed__gte=cutoff_30d).distinct().count()
@@ -135,12 +127,8 @@ def main_view(request):
     if is_staff:
         ctx["show_staff_tab"] = True
         ctx["staff_open"] = qs_base.open()
-        ctx["staff_running"] = qs_base.accepted()
-        ctx["staff_closed"] = qs_base.filter(
-            models.Q(date_completed__isnull=False)
-            | models.Q(date_rejected__isnull=False)
-            | models.Q(esi_status__in=("cancelled", "deleted", "reversed"))
-        )
+        ctx["staff_running"] = qs_base.running()
+        ctx["staff_closed"] = qs_base.closed()
         ctx["status_choices"] = Contract.STATUSES
 
     from django.apps import apps as django_apps
@@ -224,6 +212,7 @@ def contracts_runner(request):
         models.Q(date_started__isnull=False)
         | models.Q(date_completed__isnull=False)
         | models.Q(date_rejected__isnull=False)
+        | models.Q(date_cancelled__isnull=False)
     ).distinct()
 
     return render(
@@ -305,7 +294,7 @@ def contract_complete(request, pk):
     if not is_staff and contract.accepted_by != user and contract.assigned_runner != user:
         return HttpResponseForbidden()
 
-    if contract.status != "accepted":
+    if contract.status != "running":
         messages.error(request, "Only running contracts can be completed.")
         return _smart_redirect(request)
 
@@ -326,17 +315,23 @@ def contract_complete(request, pk):
 
 
 @login_required
-@permission_required("aa_burnneweden.staff_access", raise_exception=True)
+@permission_required("aa_burnneweden.runner_access", raise_exception=True)
 @require_POST
 def contract_cancel(request, pk):
     contract = get_object_or_404(Contract, pk=pk)
+    user = request.user
+    is_staff = user.has_perm("aa_burnneweden.staff_access") or user.has_perm("aa_burnneweden.admin_access")
 
-    if contract.status not in ("open", "accepted"):
-        messages.error(request, "This contract cannot be cancelled in its current state.")
+    if not is_staff and contract.accepted_by != user and contract.assigned_runner != user:
+        return HttpResponseForbidden()
+
+    if contract.status != "running":
+        messages.error(request, "Only running contracts can be cancelled.")
         return _smart_redirect(request)
 
-    contract.esi_status = "cancelled"
-    contract.save(update_fields=["esi_status"])
+    contract.date_cancelled = now()
+    contract.cancelled_by = user
+    contract.save(update_fields=["date_cancelled", "cancelled_by"])
 
     from .notifications import notify_runner_contract_canceled
     notify_runner_contract_canceled.delay(contract.pk)
@@ -346,18 +341,14 @@ def contract_cancel(request, pk):
 
 
 @login_required
-@permission_required("aa_burnneweden.runner_access", raise_exception=True)
+@permission_required("aa_burnneweden.staff_access", raise_exception=True)
 @require_POST
 def contract_reject(request, pk):
     contract = get_object_or_404(Contract, pk=pk)
     user = request.user
-    is_staff = user.has_perm("aa_burnneweden.staff_access") or user.has_perm("aa_burnneweden.admin_access")
 
-    if not is_staff and contract.accepted_by != user and contract.assigned_runner != user:
-        return HttpResponseForbidden()
-
-    if not is_staff and contract.status != "accepted":
-        messages.error(request, "You can only reject running contracts.")
+    if contract.status not in ("open", "running"):
+        messages.error(request, "Only open or running contracts can be force-rejected.")
         return _smart_redirect(request)
 
     reason = request.POST.get("reason", "").strip()
@@ -385,7 +376,7 @@ def bulk_complete(request):
     is_staff = user.has_perm("aa_burnneweden.staff_access") or user.has_perm("aa_burnneweden.admin_access")
     pks = request.POST.getlist("pks")
 
-    qs = Contract.objects.accepted().filter(pk__in=pks)
+    qs = Contract.objects.running().filter(pk__in=pks)
     if not is_staff:
         qs = qs.filter(models.Q(accepted_by=user) | models.Q(assigned_runner=user))
 
@@ -418,7 +409,7 @@ def bulk_reject(request):
         messages.error(request, "A rejection reason is required.")
         return _smart_redirect(request)
 
-    qs = Contract.objects.accepted().filter(pk__in=pks)
+    qs = Contract.objects.running().filter(pk__in=pks)
     if not is_staff:
         qs = qs.filter(models.Q(accepted_by=user) | models.Q(assigned_runner=user))
 
@@ -440,18 +431,23 @@ def bulk_reject(request):
 
 
 @login_required
-@permission_required("aa_burnneweden.staff_access", raise_exception=True)
+@permission_required("aa_burnneweden.runner_access", raise_exception=True)
 @require_POST
 def bulk_cancel(request):
+    user = request.user
+    is_staff = user.has_perm("aa_burnneweden.staff_access") or user.has_perm("aa_burnneweden.admin_access")
     pks = request.POST.getlist("pks")
 
-    qs = Contract.objects.active().filter(pk__in=pks)
+    qs = Contract.objects.running().filter(pk__in=pks)
+    if not is_staff:
+        qs = qs.filter(models.Q(accepted_by=user) | models.Q(assigned_runner=user))
 
     from .notifications import notify_runner_contract_canceled
     count = 0
     for contract in qs:
-        contract.esi_status = "cancelled"
-        contract.save(update_fields=["esi_status"])
+        contract.date_cancelled = now()
+        contract.cancelled_by = user
+        contract.save(update_fields=["date_cancelled", "cancelled_by"])
         notify_runner_contract_canceled.delay(contract.pk)
         count += 1
 
@@ -546,7 +542,7 @@ def admin_config(request):
 @permission_required("aa_burnneweden.admin_access", raise_exception=True)
 @require_POST
 def admin_sync(request):
-    update_all_contracts.delay()
+    sync_contracts.delay()
     messages.success(request, "ESI sync queued for all active corporations.")
     return redirect("aa_burnneweden:admin_config")
 

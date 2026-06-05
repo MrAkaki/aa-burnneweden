@@ -1,7 +1,5 @@
 from django.db import models
 
-CANCELLED_ESI_STATUSES = ("cancelled", "deleted", "reversed")
-
 
 class ContractQuerySet(models.QuerySet):
     def open(self):
@@ -9,14 +7,16 @@ class ContractQuerySet(models.QuerySet):
             date_started__isnull=True,
             date_completed__isnull=True,
             date_rejected__isnull=True,
-        ).exclude(esi_status__in=CANCELLED_ESI_STATUSES)
+            date_cancelled__isnull=True,
+        )
 
-    def accepted(self):
+    def running(self):
         return self.filter(
             date_started__isnull=False,
             date_completed__isnull=True,
             date_rejected__isnull=True,
-        ).exclude(esi_status__in=CANCELLED_ESI_STATUSES)
+            date_cancelled__isnull=True,
+        )
 
     def completed(self):
         return self.filter(date_completed__isnull=False)
@@ -25,17 +25,21 @@ class ContractQuerySet(models.QuerySet):
         return self.filter(date_rejected__isnull=False)
 
     def cancelled(self):
+        return self.filter(date_cancelled__isnull=False)
+
+    def closed(self):
         return self.filter(
-            esi_status__in=CANCELLED_ESI_STATUSES,
-            date_completed__isnull=True,
-            date_rejected__isnull=True,
+            models.Q(date_completed__isnull=False)
+            | models.Q(date_rejected__isnull=False)
+            | models.Q(date_cancelled__isnull=False)
         )
 
     def active(self):
         return self.filter(
             date_completed__isnull=True,
             date_rejected__isnull=True,
-        ).exclude(esi_status__in=CANCELLED_ESI_STATUSES)
+            date_cancelled__isnull=True,
+        )
 
     def for_puller(self, user):
         return self.filter(issuer_user=user)
@@ -45,15 +49,15 @@ class ContractQuerySet(models.QuerySet):
             models.Q(date_started__isnull=True)
             & models.Q(date_completed__isnull=True)
             & models.Q(date_rejected__isnull=True)
-            & ~models.Q(esi_status__in=CANCELLED_ESI_STATUSES)
+            & models.Q(date_cancelled__isnull=True)
         )
         return self.filter(open_q | models.Q(accepted_by=user) | models.Q(assigned_runner=user))
 
     def with_status(self, status_value):
         if status_value == "open":
             return self.open()
-        if status_value == "accepted":
-            return self.accepted()
+        if status_value == "running":
+            return self.running()
         if status_value == "completed":
             return self.completed()
         if status_value == "rejected":
@@ -70,8 +74,11 @@ class ContractManager(models.Manager):
     def open(self):
         return self.get_queryset().open()
 
-    def accepted(self):
-        return self.get_queryset().accepted()
+    def running(self):
+        return self.get_queryset().running()
+
+    def closed(self):
+        return self.get_queryset().closed()
 
     def for_puller(self, user):
         return self.get_queryset().for_puller(user)

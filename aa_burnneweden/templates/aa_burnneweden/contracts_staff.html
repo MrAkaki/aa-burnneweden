@@ -73,25 +73,17 @@
                         <td>{{ contract.date_issued|date:"m-d H:i" }}</td>
                         <td class="text-end">
                             <div class="btn-group btn-group-sm">
-                                {% if contract.status == 'accepted' %}
+                                {% if contract.status == 'running' %}
                                     <button class="btn btn-success btn-sm" title="{% trans 'Complete' %}"
                                         data-bs-toggle="modal" data-bs-target="#completeModal"
                                         data-contract-pk="{{ contract.pk }}" data-contract-id="{{ contract.contract_id }}">
                                         <i class="fas fa-check"></i>
                                     </button>
-                                    <button class="btn btn-danger btn-sm" title="{% trans 'Reject' %}"
+                                    <button class="btn btn-danger btn-sm" title="{% trans 'Force Reject' %}"
                                         data-bs-toggle="modal" data-bs-target="#rejectModal"
                                         data-contract-pk="{{ contract.pk }}" data-contract-id="{{ contract.contract_id }}">
                                         <i class="fas fa-times"></i>
                                     </button>
-                                    <button class="btn btn-outline-info btn-sm"
-                                        data-bs-toggle="modal" data-bs-target="#reassignModal"
-                                        data-contract-pk="{{ contract.pk }}" data-contract-id="{{ contract.contract_id }}"
-                                        title="{% trans 'Reassign' %}">
-                                        <i class="fas fa-user-edit"></i>
-                                    </button>
-                                {% endif %}
-                                {% if contract.status == 'open' or contract.status == 'accepted' %}
                                     <form method="post" action="{% url 'aa_burnneweden:contract_cancel' contract.pk %}" class="d-inline">
                                         {% csrf_token %}
                                         <button class="btn btn-outline-secondary btn-sm" title="{% trans 'Cancel' %}"
@@ -99,6 +91,12 @@
                                             <i class="fas fa-ban"></i>
                                         </button>
                                     </form>
+                                    <button class="btn btn-outline-info btn-sm"
+                                        data-bs-toggle="modal" data-bs-target="#reassignModal"
+                                        data-contract-pk="{{ contract.pk }}" data-contract-id="{{ contract.contract_id }}"
+                                        title="{% trans 'Reassign' %}">
+                                        <i class="fas fa-user-edit"></i>
+                                    </button>
                                 {% endif %}
                             </div>
                         </td>

@@ -361,6 +361,8 @@
                                 <span class="text-danger">{{ c.date_rejected|date:"Y-m-d H:i" }}</span>
                             {% elif c.date_completed %}
                                 {{ c.date_completed|date:"Y-m-d H:i" }}
+                            {% elif c.date_cancelled %}
+                                {{ c.date_cancelled|date:"Y-m-d H:i" }}
                             {% else %}-{% endif %}
                         </td>
                         <td>
@@ -402,11 +404,14 @@
                     <i class="fas fa-check fa-fw"></i> {% trans "Complete Selected" %}
                 </button>
             </form>
-            <button type="button" class="btn btn-sm btn-outline-danger"
-                    data-bs-toggle="modal" data-bs-target="#bulkRejectModal"
-                    data-active-tab="tab-runner" data-bar="runnerRunningBulkBar">
-                <i class="fas fa-times fa-fw"></i> {% trans "Reject Selected" %}
-            </button>
+            <form method="post" action="{% url 'aa_burnneweden:bulk_cancel' %}"
+                  class="d-inline bulk-form" id="runnerBulkCancelForm">
+                {% csrf_token %}
+                <input type="hidden" name="active_tab" value="tab-runner">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">
+                    <i class="fas fa-ban fa-fw"></i> {% trans "Cancel Selected" %}
+                </button>
+            </form>
         </div>
         <div class="table-responsive mb-4">
             <table class="table table-striped table-hover table-sm" id="runnerRunningTable">
@@ -435,10 +440,10 @@
                                     data-contract-pk="{{ c.pk }}" data-contract-id="{{ c.contract_id }}">
                                     {% trans "Complete" %}
                                 </button>
-                                <button class="btn btn-sm btn-outline-danger"
-                                    data-bs-toggle="modal" data-bs-target="#rejectModal"
+                                <button class="btn btn-sm btn-outline-secondary"
+                                    data-bs-toggle="modal" data-bs-target="#cancelModal"
                                     data-contract-pk="{{ c.pk }}" data-contract-id="{{ c.contract_id }}">
-                                    {% trans "Reject" %}
+                                    {% trans "Cancel" %}
                                 </button>
                             </div>
                         </td>
@@ -520,6 +525,8 @@
                                 <span class="text-danger">{{ c.date_rejected|date:"Y-m-d H:i" }}</span>
                             {% elif c.date_completed %}
                                 {{ c.date_completed|date:"Y-m-d H:i" }}
+                            {% elif c.date_cancelled %}
+                                {{ c.date_cancelled|date:"Y-m-d H:i" }}
                             {% else %}-{% endif %}
                         </td>
                     </tr>
@@ -632,43 +639,23 @@
         </h5>
         <p class="text-muted small mb-2">{% trans "Waiting for a runner to pick up." %}</p>
         {% if staff_open %}
-        <div class="d-none bulk-actions-bar mb-2 align-items-center gap-2 flex-wrap"
-             id="staffOpenBulkBar" data-table="staffOpenTable">
-            <span class="text-muted small"><span class="bulk-count">0</span> {% trans "selected" %}</span>
-            <form method="post" action="{% url 'aa_burnneweden:bulk_cancel' %}"
-                  class="d-inline bulk-form" id="staffBulkCancelOpenForm">
-                {% csrf_token %}
-                <input type="hidden" name="active_tab" value="tab-staff">
-                <button type="submit" class="btn btn-sm btn-outline-secondary">
-                    <i class="fas fa-ban fa-fw"></i> {% trans "Cancel Selected" %}
-                </button>
-            </form>
-        </div>
         <div class="table-responsive mb-4">
             <table class="table table-striped table-hover table-sm" id="staffOpenTable">
                 <thead class="table-dark">
                     <tr>
-                        <th style="width:1px"><input type="checkbox" class="bulk-select-all" data-table="staffOpenTable" title="{% trans 'Select all' %}"></th>
                         <th>{% trans "Title" %}</th>
                         <th>{% trans "Issued by" %}</th>
                         <th>{% trans "Value (ISK)" %}</th>
                         <th>{% trans "Issued" %}</th>
-                        <th></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for c in staff_open %}
                     <tr>
-                        <td><input type="checkbox" class="bulk-check" value="{{ c.pk }}"></td>
                         <td><a href="{% url 'aa_burnneweden:contract_detail' c.pk %}">{{ c.title|default:c.contract_id }}</a></td>
                         <td>{% if c.issuer_on_aa %}<span class="text-white">{{ c.issuer_main_name }}</span>{% else %}<span class="text-warning">{{ c.issuer_main_name }}</span>{% endif %}</td>
                         <td>{{ c.reward|intcomma }}</td>
                         <td>{{ c.date_issued|date:"Y-m-d H:i" }}</td>
-                        <td class="text-end">
-                            <form method="post" action="{% url 'aa_burnneweden:contract_cancel' c.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="active_tab" value="tab-staff">
-                                <button class="btn btn-outline-secondary btn-sm" title="{% trans 'Cancel' %}"><i class="fas fa-ban"></i></button>
-                            </form>
-                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -717,6 +704,8 @@
                                 <span class="text-danger">{{ c.date_rejected|date:"Y-m-d H:i" }}</span>
                             {% elif c.date_completed %}
                                 {{ c.date_completed|date:"Y-m-d H:i" }}
+                            {% elif c.date_cancelled %}
+                                {{ c.date_cancelled|date:"Y-m-d H:i" }}
                             {% else %}-{% endif %}
                         </td>
                         <td><span class="text-white">{{ c.runner_main_name }}</span></td>
@@ -841,7 +830,7 @@
                     <textarea name="comment" id="completeComment" class="form-control" rows="3" placeholder="{% trans 'Add a note about this run...' %}"></textarea>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Close" %}</button>
                     <button type="submit" class="btn btn-success">{% trans "Mark as Completed" %}</button>
                 </div>
             </form>
@@ -849,12 +838,37 @@
     </div>
 </div>
 
-{# Reject modal — runners and staff #}
+{# Cancel modal — runners (returned ISK to issuer) #}
+<div class="modal fade" id="cancelModal" tabindex="-1" aria-labelledby="cancelModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="cancelModalLabel">{% trans "Cancel Contract" %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" id="cancelForm" action="">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <p id="cancelContractLabel" class="text-muted small"></p>
+                    <p class="small">{% trans "Use this when you had an issue and have returned the ISK to the issuer." %}</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Close" %}</button>
+                    <button type="submit" class="btn btn-outline-secondary">{% trans "Cancel Contract" %}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{# Reject modal — staff only (force-reject) #}
+{% if show_staff_tab %}
 <div class="modal fade" id="rejectModal" tabindex="-1" aria-labelledby="rejectModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="rejectModalLabel">{% trans "Reject Contract" %}</h5>
+                <h5 class="modal-title" id="rejectModalLabel">{% trans "Force Reject Contract" %}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="post" id="rejectForm" action="">
@@ -865,7 +879,7 @@
                     <textarea name="reason" id="rejectReason" class="form-control" rows="3" required placeholder="{% trans 'Explain why this contract is being rejected...' %}"></textarea>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Close" %}</button>
                     <button type="submit" class="btn btn-danger">{% trans "Reject Contract" %}</button>
                 </div>
             </form>
@@ -874,8 +888,8 @@
 </div>
 {% endif %}
 
-{# Bulk Reject modal — shared for runner and staff bulk reject #}
-{% if show_runner_tab or show_staff_tab %}
+{# Bulk Reject modal — staff only #}
+{% if show_staff_tab %}
 <div class="modal fade" id="bulkRejectModal" tabindex="-1" aria-labelledby="bulkRejectModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -1055,6 +1069,20 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    // ── Cancel modal ────────────────────────────────────────────
+    var cancelModal = document.getElementById('cancelModal');
+    if (cancelModal) {
+        cancelModal.addEventListener('show.bs.modal', function (event) {
+            var btn = event.relatedTarget;
+            var pk = btn.getAttribute('data-contract-pk');
+            var contractId = btn.getAttribute('data-contract-id');
+            var form = document.getElementById('cancelForm');
+            form.action = '/burnneweden/' + pk + '/cancel/';
+            document.getElementById('cancelContractLabel').textContent = 'Contract #' + contractId;
+            setActiveTabInput(form, btn);
+        });
+    }
+
     // ── Reject modal ────────────────────────────────────────────
     var rejectModal = document.getElementById('rejectModal');
     if (rejectModal) {
@@ -1145,6 +1173,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     ['runnerRunningTable', 'staffRunningTable', 'staffOpenTable'].forEach(wireTable);
+    // runnerRunningTable bulk bar includes both complete and cancel forms
 
     // ── Bulk Reject modal ───────────────────────────────────────
     var bulkRejectModal = document.getElementById('bulkRejectModal');
