@@ -22,6 +22,7 @@ def sync_contracts():
     for owner in owners:
         _sync_corp(owner)
     logger.info("sync_contracts: processed %d owner corporation(s).", len(owners))
+    resolve_contract_issuers.delay()
 
 
 def _sync_corp(owner):
@@ -156,6 +157,37 @@ def _sync_corp(owner):
     owner.last_updated = now()
     owner.save(update_fields=["last_updated"])
     logger.info("Synced %d item-exchange contracts for corp %d.", updated, corp_id)
+
+
+@shared_task
+def resolve_contract_issuers():
+    """Back-fill issuer_user on contracts where it is NULL but issuer_character is known."""
+    from allianceauth.authentication.models import CharacterOwnership
+
+    from .models import Contract
+
+    qs = Contract.objects.filter(issuer_user__isnull=True, issuer_character__isnull=False).select_related(
+        "issuer_character"
+    )
+    updated = 0
+    for contract in qs:
+        char = contract.issuer_character
+        user = None
+        try:
+            user = char.userprofile.user
+        except Exception:
+            pass
+        if user is None:
+            try:
+                user = CharacterOwnership.objects.select_related("user").get(character=char).user
+            except Exception:
+                pass
+        if user:
+            contract.issuer_user = user
+            contract.save(update_fields=["issuer_user"])
+            updated += 1
+
+    logger.info("resolve_contract_issuers: back-filled %d contract(s).", updated)
 
 
 @shared_task
@@ -298,6 +330,7 @@ def update_contracts_for_character(character_id: int, user_pk: int):
         updated += 1
 
     logger.info("Synced %d item-exchange contracts for character %d.", updated, character_id)
+    resolve_contract_issuers.delay()
 
 
 def _fetch_character_contract_items(character_id: int, contract, token):
