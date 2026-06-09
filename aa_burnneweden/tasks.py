@@ -351,6 +351,12 @@ def _resolve_issuer(character_id: int):
         user = char.userprofile.user
     except Exception:
         pass
+    if user is None:
+        try:
+            from allianceauth.authentication.models import CharacterOwnership
+            user = CharacterOwnership.objects.select_related("user").get(character=char).user
+        except Exception:
+            pass
     return char, user
 
 
