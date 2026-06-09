@@ -258,7 +258,7 @@
         <p class="text-muted small mb-2">{% trans "Your contracts that a runner has accepted and is actively working on." %}</p>
         {% if puller_running %}
         <div class="table-responsive mb-4">
-            <table class="table table-striped table-hover table-sm">
+            <table class="table table-striped table-hover table-sm" id="pullerRunningTable">
                 <thead class="table-dark">
                     <tr>
                         <th>{% trans "Title" %}</th>
@@ -301,7 +301,7 @@
         <p class="text-muted small mb-2">{% trans "Waiting for a runner to pick up." %}</p>
         {% if puller_open %}
         <div class="table-responsive mb-4">
-            <table class="table table-striped table-hover table-sm">
+            <table class="table table-striped table-hover table-sm" id="pullerOpenTable">
                 <thead class="table-dark">
                     <tr>
                         <th>{% trans "Title" %}</th>
@@ -336,7 +336,7 @@
         <div class="collapse" id="pullerClosedCollapse">
         {% if puller_closed %}
         <div class="table-responsive mt-2">
-            <table class="table table-striped table-hover table-sm">
+            <table class="table table-striped table-hover table-sm" id="pullerClosedTable">
                 <thead class="table-dark">
                     <tr>
                         <th>{% trans "Title" %}</th>
@@ -464,7 +464,7 @@
         <p class="text-muted small mb-2">{% trans "Open contracts waiting to be picked up." %}</p>
         {% if runner_available %}
         <div class="table-responsive mb-4">
-            <table class="table table-striped table-hover table-sm">
+            <table class="table table-striped table-hover table-sm" id="runnerAvailableTable">
                 <thead class="table-dark">
                     <tr>
                         <th>{% trans "Title" %}</th>
@@ -501,7 +501,7 @@
         <div class="collapse" id="runnerClosedCollapse">
         {% if runner_closed %}
         <div class="table-responsive mt-2">
-            <table class="table table-striped table-hover table-sm">
+            <table class="table table-striped table-hover table-sm" id="runnerClosedTable">
                 <thead class="table-dark">
                     <tr>
                         <th>{% trans "Title" %}</th>
@@ -677,7 +677,7 @@
         <div class="collapse" id="staffClosedCollapse">
         {% if staff_closed %}
         <div class="table-responsive mt-2">
-            <table class="table table-striped table-hover table-sm">
+            <table class="table table-striped table-hover table-sm" id="staffClosedTable">
                 <thead class="table-dark">
                     <tr>
                         <th>{% trans "Title" %}</th>
@@ -946,6 +946,7 @@
 {% endif %}
 
 {% block extra_javascript %}
+{% include 'aa_burnneweden/_pagination_js.html' %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -1119,9 +1120,11 @@ document.addEventListener('DOMContentLoaded', function () {
         var bar = document.querySelector('.bulk-actions-bar[data-table="' + tableId + '"]');
         if (!bar) return;
 
-        var allChecks = table.querySelectorAll('tbody .bulk-check');
-        var checked = table.querySelectorAll('tbody .bulk-check:checked');
-        var pks = Array.from(checked).map(function (cb) { return cb.value; });
+        var allChecks = Array.from(table.querySelectorAll('tbody .bulk-check')).filter(function (cb) {
+            return cb.closest('tr').style.display !== 'none';
+        });
+        var checked = allChecks.filter(function (cb) { return cb.checked; });
+        var pks = checked.map(function (cb) { return cb.value; });
 
         if (checked.length > 0) {
             bar.classList.remove('d-none');
@@ -1160,7 +1163,9 @@ document.addEventListener('DOMContentLoaded', function () {
         var selectAll = document.querySelector('.bulk-select-all[data-table="' + tableId + '"]');
         if (selectAll) {
             selectAll.addEventListener('change', function () {
-                table.querySelectorAll('tbody .bulk-check').forEach(function (cb) {
+                Array.from(table.querySelectorAll('tbody .bulk-check')).filter(function (cb) {
+                    return cb.closest('tr').style.display !== 'none';
+                }).forEach(function (cb) {
                     cb.checked = selectAll.checked;
                 });
                 syncBulkBar(tableId);
@@ -1173,7 +1178,15 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     ['runnerRunningTable', 'staffRunningTable', 'staffOpenTable'].forEach(wireTable);
-    // runnerRunningTable bulk bar includes both complete and cancel forms
+
+    // Pagination — 20 rows per page; bulk-select tables pass syncBulkBar as callback
+    [
+        'pullerRunningTable', 'pullerOpenTable', 'pullerClosedTable',
+        'runnerAvailableTable', 'runnerClosedTable', 'staffClosedTable',
+    ].forEach(function (id) { initPagination(id, 20); });
+    initPagination('runnerRunningTable', 20, syncBulkBar);
+    initPagination('staffRunningTable', 20, syncBulkBar);
+    initPagination('staffOpenTable', 20);
 
     // ── Bulk Reject modal ───────────────────────────────────────
     var bulkRejectModal = document.getElementById('bulkRejectModal');

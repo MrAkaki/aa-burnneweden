@@ -1,0 +1,90 @@
+{% load i18n %}
+<script>
+(function () {
+  function initPagination(tableId, perPage, onPageChange) {
+    var table = document.getElementById(tableId);
+    if (!table) return;
+    var tbody = table.querySelector('tbody');
+    if (!tbody) return;
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    if (rows.length <= perPage) return;
+
+    var currentPage = 1;
+    var totalPages = Math.ceil(rows.length / perPage);
+
+    var anchor = table.closest('.table-responsive') || table;
+    var paginationDiv = document.createElement('div');
+    paginationDiv.className = 'd-flex align-items-center justify-content-between flex-wrap gap-2 mb-3';
+    anchor.parentNode.insertBefore(paginationDiv, anchor.nextSibling);
+
+    function showPage(page) {
+      currentPage = page;
+      var start = (page - 1) * perPage;
+      var end = start + perPage;
+      rows.forEach(function (row, i) {
+        if (i >= start && i < end) {
+          row.style.display = '';
+        } else {
+          row.style.display = 'none';
+          row.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
+            cb.checked = false;
+          });
+        }
+      });
+      renderPagination();
+      if (typeof onPageChange === 'function') onPageChange(tableId);
+    }
+
+    function getPageNums(cur, total) {
+      if (total <= 7) {
+        return Array.from({ length: total }, function (_, i) { return i + 1; });
+      }
+      var out = [1];
+      if (cur > 3) out.push('…');
+      for (var i = Math.max(2, cur - 1); i <= Math.min(total - 1, cur + 1); i++) out.push(i);
+      if (cur < total - 2) out.push('…');
+      out.push(total);
+      return out;
+    }
+
+    function renderPagination() {
+      var start = (currentPage - 1) * perPage + 1;
+      var end = Math.min(currentPage * perPage, rows.length);
+
+      var items = '';
+      items += '<li class="page-item' + (currentPage === 1 ? ' disabled' : '') + '">' +
+        '<a class="page-link" href="#" data-page="' + (currentPage - 1) + '">&#8249;</a></li>';
+
+      getPageNums(currentPage, totalPages).forEach(function (p) {
+        if (typeof p === 'string') {
+          items += '<li class="page-item disabled"><span class="page-link">' + p + '</span></li>';
+        } else {
+          items += '<li class="page-item' + (p === currentPage ? ' active' : '') + '">' +
+            '<a class="page-link" href="#" data-page="' + p + '">' + p + '</a></li>';
+        }
+      });
+
+      items += '<li class="page-item' + (currentPage === totalPages ? ' disabled' : '') + '">' +
+        '<a class="page-link" href="#" data-page="' + (currentPage + 1) + '">&#8250;</a></li>';
+
+      paginationDiv.innerHTML =
+        '<small class="text-muted">{% trans "Showing" %} ' + start + '–' + end +
+        ' {% trans "of" %} ' + rows.length + '</small>' +
+        '<nav aria-label="{% trans "Page navigation" %}"><ul class="pagination pagination-sm mb-0">' +
+        items + '</ul></nav>';
+
+      paginationDiv.querySelectorAll('a.page-link[data-page]').forEach(function (a) {
+        a.addEventListener('click', function (e) {
+          e.preventDefault();
+          var p = parseInt(this.getAttribute('data-page'), 10);
+          if (p >= 1 && p <= totalPages) showPage(p);
+        });
+      });
+    }
+
+    showPage(1);
+  }
+
+  window.initPagination = initPagination;
+}());
+</script>
