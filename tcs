@@ -1,0 +1,31 @@
+Can you run this in the Django shell on production? It will tell us exactly what's happening:
+
+
+# Get a shell
+docker exec -it allianceauth_gunicorn python manage.py shell
+Then paste:
+
+
+from aa_burnneweden.models import Contract
+from allianceauth.eveonline.models import EveCharacter
+from allianceauth.authentication.models import CharacterOwnership
+
+fc = EveCharacter.objects.get(character_name="Flying Croissant")
+print("character_id:", fc.character_id, "pk:", fc.pk)
+
+co = CharacterOwnership.objects.filter(character=fc).first()
+print("CharacterOwnership user:", co.user if co else "NONE — not linked!")
+
+contracts = Contract.objects.filter(issuer_character=fc)
+print("Total FC contracts:", contracts.count())
+print("  issuer_user=NULL:", contracts.filter(issuer_user__isnull=True).count())
+print("  issuer_user set:", contracts.filter(issuer_user__isnull=False).count())
+
+for c in contracts[:5]:
+    print(f"  contract {c.contract_id}: issuer_user={c.issuer_user_id} ({c.issuer_user})")
+This will tell us one of three things:
+
+CharacterOwnership user: NONE → the SSO add didn't create the ownership record properly
+issuer_user=NULL on contracts → resolve_contract_issuers isn't running or is silently failing
+issuer_user is set but to a different user → the contracts were created when Flying Croissant had a separate AA account
+The fix path is different for each case.
