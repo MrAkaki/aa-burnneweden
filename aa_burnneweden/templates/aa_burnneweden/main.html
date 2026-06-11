@@ -933,6 +933,11 @@
                     <label for="runner_id" class="form-label">{% trans "Select Runner" %}</label>
                     <select name="runner_id" id="runner_id" class="form-select">
                         <option value="">— {% trans "Unassign" %} —</option>
+                        {% for runner in runner_users %}
+                        <option value="{{ runner.pk }}">
+                            {% if runner.profile.main_character %}{{ runner.profile.main_character.character_name }}{% else %}{{ runner.username }}{% endif %}
+                        </option>
+                        {% endfor %}
                     </select>
                 </div>
                 <div class="modal-footer">
