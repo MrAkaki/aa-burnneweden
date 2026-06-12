@@ -125,11 +125,21 @@ def main_view(request):
         ctx["my_runs_month"] = my_qs.filter(date_completed__gte=cutoff_30d).distinct().count()
 
     if is_staff:
+        from django.contrib.auth.models import Permission
+        from django.contrib.auth.models import User as AuthUser
+        runner_perm = Permission.objects.filter(codename="runner_access").first()
+        if runner_perm:
+            runner_users = AuthUser.objects.filter(
+                models.Q(user_permissions=runner_perm) | models.Q(groups__permissions=runner_perm)
+            ).select_related("profile__main_character").distinct()
+        else:
+            runner_users = AuthUser.objects.none()
         ctx["show_staff_tab"] = True
         ctx["staff_open"] = qs_base.open()
         ctx["staff_running"] = qs_base.running()
         ctx["staff_closed"] = qs_base.closed()
         ctx["status_choices"] = Contract.STATUSES
+        ctx["runner_users"] = runner_users
 
     from django.apps import apps as django_apps
     ctx["discord_available"] = django_apps.is_installed("aadiscordbot")
