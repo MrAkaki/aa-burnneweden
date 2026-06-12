@@ -16,9 +16,6 @@
                 <i class="fas fa-sync-alt fa-fw"></i> {% trans "Sync ESI Now" %}
             </button>
         </form>
-        <a href="{% url 'aa_burnneweden:admin_config' %}" class="btn btn-secondary">
-            <i class="fas fa-cog fa-fw"></i> {% trans "Config" %}
-        </a>
         {% endif %}
     </div>
 </div>
@@ -64,6 +61,14 @@
         <button class="nav-link" id="tab-notifications-btn" data-bs-toggle="tab"
             data-bs-target="#tab-notifications" type="button" role="tab">
             <i class="fab fa-discord fa-fw"></i> {% trans "Notifications" %}
+        </button>
+    </li>
+    {% endif %}
+    {% if show_admin_tab %}
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-admin-btn" data-bs-toggle="tab"
+            data-bs-target="#tab-admin" type="button" role="tab">
+            <i class="fas fa-shield-alt fa-fw"></i> {% trans "Admin" %}
         </button>
     </li>
     {% endif %}
@@ -809,6 +814,62 @@
         {% endif %}
 
     </div>{# end tab-notifications #}
+    {% endif %}
+
+    {# ── TAB 6: Admin ── #}
+    {% if show_admin_tab %}
+    <div class="tab-pane fade" id="tab-admin" role="tabpanel">
+
+        <h2 class="mt-2 mb-1">{% trans "Burn New Eden Configuration" %}</h2>
+        <p class="text-muted mb-3">{% trans "Configure which corporations to pull contracts from." %}</p>
+
+        <div class="mb-3">
+            <a href="{% url 'aa_burnneweden:corp_sso_post_auth' %}" class="btn btn-primary me-2">
+                <i class="fas fa-plus fa-fw"></i> {% trans "Add Corporation via EVE SSO" %}
+            </a>
+            <a href="{% url 'admin:aa_burnneweden_ownercorporation_changelist' %}" class="btn btn-outline-secondary me-2">
+                <i class="fas fa-cog fa-fw"></i> {% trans "Manage in Django Admin" %}
+            </a>
+            <form method="post" action="{% url 'aa_burnneweden:admin_sync' %}" class="d-inline">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-warning">
+                    <i class="fas fa-sync-alt fa-fw"></i> {% trans "Trigger ESI Sync Now" %}
+                </button>
+            </form>
+        </div>
+
+        <table class="table table-striped">
+            <thead class="table-dark">
+                <tr>
+                    <th>{% trans "Corporation" %}</th>
+                    <th>{% trans "ESI Character" %}</th>
+                    <th>{% trans "Active" %}</th>
+                    <th>{% trans "Last Synced" %}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for owner in admin_owners %}
+                <tr>
+                    <td>{{ owner.corporation.corporation_name }}</td>
+                    <td>{{ owner.character.character_name|default:"-" }}</td>
+                    <td>
+                        {% if owner.is_active %}
+                            <span class="badge bg-success">{% trans "Active" %}</span>
+                        {% else %}
+                            <span class="badge bg-secondary">{% trans "Inactive" %}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ owner.last_updated|default:"-" }}</td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="4" class="text-center text-muted">{% trans "No corporations configured." %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+    </div>
     {% endif %}
 
 </div>{# end tab-content #}
