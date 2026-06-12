@@ -56,6 +56,8 @@ def _sync_corp(owner):
         ).results()
     except HTTPNotModified:
         logger.debug("Contracts unchanged for corp %d (304), skipping.", corp_id)
+        owner.last_updated = now()
+        owner.save(update_fields=["last_updated"])
         return
     except Exception:
         logger.exception("ESI fetch failed for corp %d.", corp_id)

@@ -141,6 +141,11 @@ def main_view(request):
         ctx["status_choices"] = Contract.STATUSES
         ctx["runner_users"] = runner_users
 
+    is_admin = user.has_perm("aa_burnneweden.admin_access")
+    if is_admin:
+        ctx["show_admin_tab"] = True
+        ctx["admin_owners"] = OwnerCorporation.objects.select_related("corporation", "character")
+
     from django.apps import apps as django_apps
     ctx["discord_available"] = django_apps.is_installed("aadiscordbot")
     ctx["discord_prefs"], _ = DiscordNotificationPreference.objects.get_or_create(user=user)
@@ -482,7 +487,7 @@ def contract_reassign(request, pk):
             runner = User.objects.get(pk=runner_id)
         except User.DoesNotExist:
             messages.error(request, "Selected runner not found.")
-            return redirect("aa_burnneweden:contracts_staff")
+            return _smart_redirect(request)
 
         contract.assigned_runner = runner
         contract.save(update_fields=["assigned_runner"])
@@ -492,7 +497,7 @@ def contract_reassign(request, pk):
         contract.save(update_fields=["assigned_runner"])
         messages.success(request, f"Contract #{contract.contract_id} unassigned.")
 
-    return redirect("aa_burnneweden:contracts_staff")
+    return _smart_redirect(request)
 
 
 @login_required
@@ -554,7 +559,7 @@ def admin_config(request):
 def admin_sync(request):
     sync_contracts.delay()
     messages.success(request, "ESI sync queued for all active corporations.")
-    return redirect("aa_burnneweden:admin_config")
+    return redirect(reverse("aa_burnneweden:main_view") + "?tab=tab-admin")
 
 
 @login_required
@@ -565,7 +570,7 @@ def corp_sso_post_auth(request, token):
     character = EveCharacter.objects.filter(character_id=token.character_id).first()
     if not character:
         messages.error(request, "Character record not found. Please try again.")
-        return redirect("aa_burnneweden:admin_config")
+        return redirect(reverse("aa_burnneweden:main_view") + "?tab=tab-admin")
 
     corp, _ = EveCorporationInfo.objects.get_or_create(
         corporation_id=character.corporation_id,
@@ -587,11 +592,11 @@ def corp_sso_post_auth(request, token):
         f"{action} corporation '{corp.corporation_name}' "
         f"using character '{character.character_name}'.",
     )
-    return redirect("aa_burnneweden:admin_config")
+    return redirect(reverse("aa_burnneweden:main_view") + "?tab=tab-admin")
 
 
 _VALID_TABS = frozenset(
-    {"tab-dashboard", "tab-puller", "tab-runner", "tab-staff", "tab-notifications"}
+    {"tab-dashboard", "tab-puller", "tab-runner", "tab-staff", "tab-notifications", "tab-admin"}
 )
 
 
