@@ -10,6 +10,45 @@ DELETE_ESI_STATUSES = ("cancelled", "deleted", "reversed")
 REJECT_ESI_STATUSES = ("rejected", "expired")
 
 
+def compute_missions(price, reward, price_per_mission):
+    """Number of missions represented by a contract's ISK value.
+
+    Bulk contracts are exact multiples of ``price_per_mission`` (e.g. 250m = 10
+    missions at 25m/mission). If a contract isn't a clean multiple, floor the
+    division rather than rounding up.
+    """
+    value = reward or price
+    if not value or not price_per_mission:
+        return 0
+    return int(value // price_per_mission)
+
+
+class MissionSettings(models.Model):
+    price_per_mission = models.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        default=25_000_000,
+        help_text="ISK charged per mission. Contract ISK value is floor-divided by this to derive mission count.",
+    )
+
+    class Meta:
+        default_permissions = ()
+        verbose_name = "Mission Settings"
+        verbose_name_plural = "Mission Settings"
+
+    def __str__(self):
+        return f"Mission Settings ({self.price_per_mission:,.0f} ISK / mission)"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_solo(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
 class OwnerCorporation(models.Model):
     corporation = models.OneToOneField(
         EveCorporationInfo,
@@ -160,6 +199,12 @@ class Contract(models.Model):
         return self.reward  # both zero, return 0
 
     @property
+    def missions(self):
+        """Number of missions this contract represents, based on the configured price per mission."""
+        price_per_mission = MissionSettings.get_solo().price_per_mission
+        return compute_missions(self.price, self.reward, price_per_mission)
+
+    @property
     def issuer_on_aa(self):
         """True when the issuer is a registered AA user."""
         return bool(self.issuer_user_id)
@@ -223,12 +268,19 @@ class DiscordNotificationPreference(models.Model):
 
     # Runner opt-ins
     notify_contract_created = models.BooleanField(default=False)
-    notify_contract_started = models.BooleanField(default=False)
     notify_contract_rejected = models.BooleanField(default=False)
-    notify_contract_completed = models.BooleanField(default=False)
+    notify_contract_canceled = models.BooleanField(default=False)
 
-    # Puller opt-in
+    # Puller opt-ins
     notify_new_open_contracts = models.BooleanField(default=False)
+    notify_contract_started = models.BooleanField(
+        default=False,
+        help_text="Notify me when a contract I submitted is accepted and started by a runner.",
+    )
+    notify_contract_completed = models.BooleanField(
+        default=False,
+        help_text="Notify me when a contract I submitted is completed.",
+    )
 
     class Meta:
         default_permissions = ()

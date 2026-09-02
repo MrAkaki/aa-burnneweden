@@ -1,7 +1,22 @@
 from django.contrib import admin
 
-from .models import Contract, ContractItem, OwnerCorporation
+from .models import Contract, ContractItem, MissionSettings, OwnerCorporation
 from .tasks import sync_contracts
+
+
+@admin.register(MissionSettings)
+class MissionSettingsAdmin(admin.ModelAdmin):
+    list_display = ("price_per_mission",)
+
+    def has_add_permission(self, request):
+        return not MissionSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def changelist_view(self, request, extra_context=None):
+        obj = MissionSettings.get_solo()
+        return self.change_view(request, str(obj.pk), extra_context=extra_context)
 
 
 class ContractItemInline(admin.TabularInline):
