@@ -24,5 +24,6 @@ urlpatterns = [
     path("discord-settings/", views.discord_settings, name="discord_settings"),
     path("admin/config/", views.admin_config, name="admin_config"),
     path("admin/sync/", views.admin_sync, name="admin_sync"),
+    path("admin/mission-price/", views.admin_update_mission_price, name="admin_update_mission_price"),
     path("corp-sso/post-auth/", views.corp_sso_post_auth, name="corp_sso_post_auth"),
 ]

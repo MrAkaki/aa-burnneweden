@@ -80,13 +80,13 @@
     <div class="tab-pane fade show active" id="tab-dashboard" role="tabpanel">
 
         {# ── Global corp stats ── #}
-        <h6 class="text-muted text-uppercase small fw-semibold mb-2 mt-1">{% trans "Corp Overview" %}</h6>
+        <h6 class="text-muted text-uppercase small fw-semibold mb-2 mt-1">{% trans "Corporation Mission Statistics" %}</h6>
         <div class="row g-3 mb-4">
             <div class="col-6 col-sm-4 col-lg-2">
                 <div class="card text-center h-100 border-primary">
                     <div class="card-body py-3">
                         <div class="fs-2 fw-bold text-primary">{{ stat_open }}</div>
-                        <div class="text-muted small">{% trans "Open" %}</div>
+                        <div class="text-muted small">{% trans "Open Missions" %}</div>
                     </div>
                 </div>
             </div>
@@ -94,7 +94,7 @@
                 <div class="card text-center h-100 border-warning">
                     <div class="card-body py-3">
                         <div class="fs-2 fw-bold text-warning">{{ stat_running }}</div>
-                        <div class="text-muted small">{% trans "Running" %}</div>
+                        <div class="text-muted small">{% trans "Running Missions" %}</div>
                     </div>
                 </div>
             </div>
@@ -102,15 +102,15 @@
                 <div class="card text-center h-100 border-success">
                     <div class="card-body py-3">
                         <div class="fs-2 fw-bold text-success">{{ stat_closed_24h }}</div>
-                        <div class="text-muted small">{% trans "Done (24h)" %}</div>
+                        <div class="text-muted small">{% trans "Missions Done (24h)" %}</div>
                     </div>
                 </div>
             </div>
             <div class="col-6 col-sm-4 col-lg-2">
                 <div class="card text-center h-100 border-info">
                     <div class="card-body py-3">
-                        <div class="fs-2 fw-bold text-info">{{ stat_fast_done }}</div>
-                        <div class="text-muted small">{% trans "Under 4h" %}</div>
+                        <div class="fs-2 fw-bold text-info">{{ stat_fast_done_pct }}%</div>
+                        <div class="text-muted small">{% trans "Missions Under 4h (30d)" %}</div>
                     </div>
                 </div>
             </div>
@@ -118,7 +118,7 @@
                 <div class="card text-center h-100">
                     <div class="card-body py-3">
                         <div class="fs-2 fw-bold">{{ stat_completed_week }}</div>
-                        <div class="text-muted small">{% trans "Done (7d)" %}</div>
+                        <div class="text-muted small">{% trans "Missions Done (7d)" %}</div>
                     </div>
                 </div>
             </div>
@@ -126,7 +126,7 @@
                 <div class="card text-center h-100">
                     <div class="card-body py-3">
                         <div class="fs-2 fw-bold">{{ stat_completed_month }}</div>
-                        <div class="text-muted small">{% trans "Done (30d)" %}</div>
+                        <div class="text-muted small">{% trans "Missions Done (30d)" %}</div>
                     </div>
                 </div>
             </div>
@@ -135,7 +135,7 @@
         {# ── Activity chart ── #}
         <div class="card mb-4">
             <div class="card-header d-flex align-items-center justify-content-between">
-                <span><i class="fas fa-chart-bar fa-fw me-1"></i> {% trans "Contracts Completed — Last 30 Days" %}</span>
+                <span><i class="fas fa-chart-bar fa-fw me-1"></i> {% trans "Missions Completed — Last 30 Days" %}</span>
             </div>
             <div class="card-body" style="height:220px; position:relative;">
                 <canvas id="completionsChart"></canvas>
@@ -759,16 +759,6 @@
 
                 <label class="list-group-item d-flex gap-3">
                     <input class="form-check-input flex-shrink-0 mt-1" type="checkbox"
-                        name="notify_contract_started"
-                        {% if discord_prefs.notify_contract_started %}checked{% endif %}>
-                    <span>
-                        <strong>{% trans "Contract started" %}</strong><br>
-                        <span class="text-muted small">{% trans "Sent when a contract assigned to you is accepted and started." %}</span>
-                    </span>
-                </label>
-
-                <label class="list-group-item d-flex gap-3">
-                    <input class="form-check-input flex-shrink-0 mt-1" type="checkbox"
                         name="notify_contract_rejected"
                         {% if discord_prefs.notify_contract_rejected %}checked{% endif %}>
                     <span>
@@ -779,11 +769,11 @@
 
                 <label class="list-group-item d-flex gap-3">
                     <input class="form-check-input flex-shrink-0 mt-1" type="checkbox"
-                        name="notify_contract_completed"
-                        {% if discord_prefs.notify_contract_completed %}checked{% endif %}>
+                        name="notify_contract_canceled"
+                        {% if discord_prefs.notify_contract_canceled %}checked{% endif %}>
                     <span>
-                        <strong>{% trans "Contract completed / canceled" %}</strong><br>
-                        <span class="text-muted small">{% trans "Sent when a contract you are running is completed or canceled." %}</span>
+                        <strong>{% trans "Contract canceled" %}</strong><br>
+                        <span class="text-muted small">{% trans "Sent when a contract you are running is canceled." %}</span>
                     </span>
                 </label>
 
@@ -801,6 +791,26 @@
                     <span>
                         <strong>{% trans "New open contracts" %}</strong><br>
                         <span class="text-muted small">{% trans "Sent when one of your submitted contracts becomes available for runners." %}</span>
+                    </span>
+                </label>
+
+                <label class="list-group-item d-flex gap-3">
+                    <input class="form-check-input flex-shrink-0 mt-1" type="checkbox"
+                        name="notify_contract_started"
+                        {% if discord_prefs.notify_contract_started %}checked{% endif %}>
+                    <span>
+                        <strong>{% trans "My contract started" %}</strong><br>
+                        <span class="text-muted small">{% trans "Sent when a contract you submitted is accepted and started by a runner." %}</span>
+                    </span>
+                </label>
+
+                <label class="list-group-item d-flex gap-3">
+                    <input class="form-check-input flex-shrink-0 mt-1" type="checkbox"
+                        name="notify_contract_completed"
+                        {% if discord_prefs.notify_contract_completed %}checked{% endif %}>
+                    <span>
+                        <strong>{% trans "My contract completed" %}</strong><br>
+                        <span class="text-muted small">{% trans "Sent when a contract you submitted is completed." %}</span>
                     </span>
                 </label>
 
@@ -1061,7 +1071,7 @@ document.addEventListener('DOMContentLoaded', function () {
             data: {
                 labels: {{ chart_labels|safe }},
                 datasets: [{
-                    label: '{% trans "Completed" %}',
+                    label: '{% trans "Missions Completed" %}',
                     data: {{ chart_values|safe }},
                     backgroundColor: 'rgba(25, 135, 84, 0.6)',
                     borderColor: 'rgba(25, 135, 84, 0.9)',
@@ -1078,7 +1088,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         callbacks: {
                             title: function(items) { return items[0].label; },
                             label: function(item) {
-                                return ' ' + item.raw + ' {% trans "completed" %}';
+                                return ' ' + item.raw + ' {% trans "missions completed" %}';
                             }
                         }
                     }

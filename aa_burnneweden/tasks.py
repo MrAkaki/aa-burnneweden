@@ -138,8 +138,8 @@ def _sync_corp(owner):
             contract.save(update_fields=update_fields)
 
             if not prev_started and contract.date_started:
-                from .notifications import notify_runner_contract_started
-                notify_runner_contract_started.delay(contract.pk)
+                from .notifications import notify_owner_contract_started
+                notify_owner_contract_started.delay(contract.pk)
 
             acceptor_id = getattr(raw, "acceptor_id", None)
             if acceptor_id and not contract.accepted_by_id:
@@ -313,8 +313,8 @@ def update_contracts_for_character(character_id: int, user_pk: int):
             contract.save(update_fields=update_fields)
 
             if not prev_started and contract.date_started:
-                from .notifications import notify_runner_contract_started
-                notify_runner_contract_started.delay(contract.pk)
+                from .notifications import notify_owner_contract_started
+                notify_owner_contract_started.delay(contract.pk)
 
             acceptor_id = getattr(raw, "acceptor_id", None)
             if acceptor_id and not contract.accepted_by_id:

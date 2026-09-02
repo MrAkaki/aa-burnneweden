@@ -1,11 +1,11 @@
 import json
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.db import models
-from django.db.models import Count, DurationField, ExpressionWrapper, F
-from django.db.models.functions import TruncDate
+from django.db.models import DurationField, ExpressionWrapper, F
 from django.http import HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -16,10 +16,19 @@ from allianceauth.eveonline.models import EveCharacter, EveCorporationInfo
 from esi.decorators import token_required
 from esi.models import Token
 
-from .models import Contract, DiscordNotificationPreference, OwnerCorporation
+from .models import Contract, DiscordNotificationPreference, MissionSettings, OwnerCorporation, compute_missions
 from .tasks import sync_contracts, update_contracts_for_puller
 
 _PULLER_SSO_SCOPE = "esi-contracts.read_character_contracts.v1"
+
+
+def _missions_sum(queryset):
+    """Sum of missions represented by every contract in the queryset (bulk contracts count as multiple missions)."""
+    price_per_mission = MissionSettings.get_solo().price_per_mission
+    return sum(
+        compute_missions(price, reward, price_per_mission)
+        for price, reward in queryset.values_list("price", "reward")
+    )
 
 
 def _get_stats():
@@ -27,27 +36,31 @@ def _get_stats():
     cutoff_24h = today - timedelta(hours=24)
     cutoff_7d = today - timedelta(days=7)
     cutoff_30d = today - timedelta(days=30)
+    price_per_mission = MissionSettings.get_solo().price_per_mission
 
-    fast_done = (
-        Contract.objects.filter(date_completed__isnull=False)
-        .annotate(
-            dur=ExpressionWrapper(
-                F("date_completed") - F("date_issued"), output_field=DurationField()
-            )
+    completed_30d_qs = Contract.objects.filter(
+        date_completed__isnull=False, date_completed__gte=cutoff_30d
+    ).annotate(
+        dur=ExpressionWrapper(
+            F("date_completed") - F("date_issued"), output_field=DurationField()
         )
-        .filter(dur__lt=timedelta(hours=4))
-        .count()
+    )
+    completed_30d_missions = _missions_sum(completed_30d_qs)
+    fast_done_30d_missions = _missions_sum(completed_30d_qs.filter(dur__lt=timedelta(hours=4)))
+    fast_done_pct = (
+        round(fast_done_30d_missions / completed_30d_missions * 100, 1)
+        if completed_30d_missions
+        else 0
     )
 
-    # Daily completions for the last 30 days (for the chart)
-    daily_rows = (
-        Contract.objects.filter(date_completed__gte=cutoff_30d)
-        .annotate(day=TruncDate("date_completed"))
-        .values("day")
-        .annotate(count=Count("pk"))
-        .order_by("day")
+    # Daily missions completed for the last 30 days (for the chart)
+    daily_rows = Contract.objects.filter(date_completed__gte=cutoff_30d).values_list(
+        "date_completed", "price", "reward"
     )
-    daily_map = {row["day"]: row["count"] for row in daily_rows}
+    daily_map = {}
+    for date_completed, price, reward in daily_rows:
+        day = date_completed.date()
+        daily_map[day] = daily_map.get(day, 0) + compute_missions(price, reward, price_per_mission)
     chart_labels = []
     chart_values = []
     for i in range(29, -1, -1):
@@ -56,12 +69,12 @@ def _get_stats():
         chart_values.append(daily_map.get(day, 0))
 
     return {
-        "stat_open": Contract.objects.open().count(),
-        "stat_running": Contract.objects.running().count(),
-        "stat_closed_24h": Contract.objects.filter(date_completed__gte=cutoff_24h).count(),
-        "stat_fast_done": fast_done,
-        "stat_completed_week": Contract.objects.filter(date_completed__gte=cutoff_7d).count(),
-        "stat_completed_month": Contract.objects.filter(date_completed__gte=cutoff_30d).count(),
+        "stat_open": _missions_sum(Contract.objects.open()),
+        "stat_running": _missions_sum(Contract.objects.running()),
+        "stat_closed_24h": _missions_sum(Contract.objects.filter(date_completed__gte=cutoff_24h)),
+        "stat_fast_done_pct": fast_done_pct,
+        "stat_completed_week": _missions_sum(Contract.objects.filter(date_completed__gte=cutoff_7d)),
+        "stat_completed_month": completed_30d_missions,
         "chart_labels": json.dumps(chart_labels),
         "chart_values": json.dumps(chart_values),
     }
@@ -322,8 +335,8 @@ def contract_complete(request, pk):
         update_fields.append("staff_notes")
     contract.save(update_fields=update_fields)
 
-    from .notifications import notify_runner_contract_completed
-    notify_runner_contract_completed.delay(contract.pk)
+    from .notifications import notify_owner_contract_completed
+    notify_owner_contract_completed.delay(contract.pk)
 
     messages.success(request, f"Contract #{contract.contract_id} marked as completed.")
     return _smart_redirect(request)
@@ -395,13 +408,13 @@ def bulk_complete(request):
     if not is_staff:
         qs = qs.filter(models.Q(accepted_by=user) | models.Q(assigned_runner=user))
 
-    from .notifications import notify_runner_contract_completed
+    from .notifications import notify_owner_contract_completed
     count = 0
     for contract in qs:
         contract.date_completed = now()
         contract.completed_by = user
         contract.save(update_fields=["date_completed", "completed_by"])
-        notify_runner_contract_completed.delay(contract.pk)
+        notify_owner_contract_completed.delay(contract.pk)
         count += 1
 
     if count:
@@ -520,24 +533,27 @@ def discord_settings(request):
 
     if is_runner:
         pref.notify_contract_created = "notify_contract_created" in request.POST
-        pref.notify_contract_started = "notify_contract_started" in request.POST
         pref.notify_contract_rejected = "notify_contract_rejected" in request.POST
-        pref.notify_contract_completed = "notify_contract_completed" in request.POST
+        pref.notify_contract_canceled = "notify_contract_canceled" in request.POST
     if is_puller:
         pref.notify_new_open_contracts = "notify_new_open_contracts" in request.POST
+        pref.notify_contract_started = "notify_contract_started" in request.POST
+        pref.notify_contract_completed = "notify_contract_completed" in request.POST
     pref.save()
 
     enabled = []
     if pref.notify_contract_created:
         enabled.append("New contract available")
-    if pref.notify_contract_started:
-        enabled.append("Contract started")
     if pref.notify_contract_rejected:
         enabled.append("Contract rejected")
-    if pref.notify_contract_completed:
-        enabled.append("Contract completed / canceled")
+    if pref.notify_contract_canceled:
+        enabled.append("Contract canceled")
     if pref.notify_new_open_contracts:
         enabled.append("New open contracts")
+    if pref.notify_contract_started:
+        enabled.append("My contract started")
+    if pref.notify_contract_completed:
+        enabled.append("My contract completed")
 
     from .notifications import send_discord_confirmation_dm
     send_discord_confirmation_dm.delay(user.pk, enabled)
@@ -550,7 +566,31 @@ def discord_settings(request):
 @permission_required("aa_burnneweden.admin_access", raise_exception=True)
 def admin_config(request):
     owners = OwnerCorporation.objects.select_related("corporation", "character")
-    return render(request, "aa_burnneweden/admin_config.html", {"owners": owners})
+    mission_settings = MissionSettings.get_solo()
+    return render(
+        request,
+        "aa_burnneweden/admin_config.html",
+        {"owners": owners, "mission_settings": mission_settings},
+    )
+
+
+@login_required
+@permission_required("aa_burnneweden.admin_access", raise_exception=True)
+@require_POST
+def admin_update_mission_price(request):
+    mission_settings = MissionSettings.get_solo()
+    try:
+        price_per_mission = Decimal(request.POST.get("price_per_mission", ""))
+        if price_per_mission <= 0:
+            raise InvalidOperation
+    except InvalidOperation:
+        messages.error(request, "Enter a valid positive ISK amount for the price per mission.")
+        return redirect(reverse("aa_burnneweden:main_view") + "?tab=tab-admin")
+
+    mission_settings.price_per_mission = price_per_mission
+    mission_settings.save()
+    messages.success(request, f"Price per mission updated to {price_per_mission:,.0f} ISK.")
+    return redirect(reverse("aa_burnneweden:main_view") + "?tab=tab-admin")
 
 
 @login_required

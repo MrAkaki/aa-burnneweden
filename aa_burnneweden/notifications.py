@@ -43,6 +43,7 @@ def notify_runners_new_contract(contract_pk: int):
         color=Color.green(),
     )
     embed.add_field(name="Reward", value=f"{contract.reward:,.0f} ISK" if contract.reward else "—")
+    embed.add_field(name="Missions", value=str(contract.missions))
     embed.add_field(name="Issued by", value=contract.issuer_main_name)
 
     prefs = DiscordNotificationPreference.objects.filter(notify_contract_created=True).select_related("user")
@@ -54,8 +55,8 @@ def notify_runners_new_contract(contract_pk: int):
 
 
 @shared_task
-def notify_runner_contract_started(contract_pk: int):
-    """Notify the specific runner that their contract has been accepted/started."""
+def notify_owner_contract_started(contract_pk: int):
+    """Notify the contract's issuer/owner that a runner has accepted and started it."""
     if not _discord_active():
         return
     from discord import Color, Embed
@@ -63,16 +64,16 @@ def notify_runner_contract_started(contract_pk: int):
     from .models import Contract, DiscordNotificationPreference
 
     try:
-        contract = Contract.objects.select_related("accepted_by", "assigned_runner").get(pk=contract_pk)
+        contract = Contract.objects.select_related("issuer_user", "accepted_by", "assigned_runner").get(pk=contract_pk)
     except Contract.DoesNotExist:
         return
 
-    runner = contract.assigned_runner or contract.accepted_by
-    if not runner:
+    owner = contract.issuer_user
+    if not owner:
         return
 
     try:
-        pref = runner.burner_discord_prefs
+        pref = owner.burner_discord_prefs
     except DiscordNotificationPreference.DoesNotExist:
         return
 
@@ -80,16 +81,17 @@ def notify_runner_contract_started(contract_pk: int):
         return
 
     embed = Embed(
-        title="Contract Started",
-        description=f"**{contract.title or f'Contract #{contract.contract_id}'}** is now active.",
+        title="Your Contract Was Started",
+        description=f"**{contract.title or f'Contract #{contract.contract_id}'}** is now being run.",
         color=Color.blue(),
     )
     embed.add_field(name="Reward", value=f"{contract.reward:,.0f} ISK" if contract.reward else "—")
+    embed.add_field(name="Runner", value=contract.runner_main_name)
 
     try:
-        _send_dm(runner, embed)
+        _send_dm(owner, embed)
     except Exception:
-        logger.exception("Failed to DM runner %d for started contract %d.", runner.pk, contract_pk)
+        logger.exception("Failed to DM owner %d for started contract %d.", owner.pk, contract_pk)
 
 
 @shared_task
@@ -133,8 +135,8 @@ def notify_runner_contract_rejected(contract_pk: int):
 
 
 @shared_task
-def notify_runner_contract_completed(contract_pk: int):
-    """Notify the runner that their contract was marked completed."""
+def notify_owner_contract_completed(contract_pk: int):
+    """Notify the contract's issuer/owner that their mission was completed."""
     if not _discord_active():
         return
     from discord import Color, Embed
@@ -142,16 +144,16 @@ def notify_runner_contract_completed(contract_pk: int):
     from .models import Contract, DiscordNotificationPreference
 
     try:
-        contract = Contract.objects.select_related("completed_by", "assigned_runner", "accepted_by").get(pk=contract_pk)
+        contract = Contract.objects.select_related("issuer_user", "completed_by", "assigned_runner", "accepted_by").get(pk=contract_pk)
     except Contract.DoesNotExist:
         return
 
-    runner = contract.assigned_runner or contract.accepted_by
-    if not runner:
+    owner = contract.issuer_user
+    if not owner:
         return
 
     try:
-        pref = runner.burner_discord_prefs
+        pref = owner.burner_discord_prefs
     except DiscordNotificationPreference.DoesNotExist:
         return
 
@@ -159,15 +161,16 @@ def notify_runner_contract_completed(contract_pk: int):
         return
 
     embed = Embed(
-        title="Contract Completed",
+        title="Your Contract Was Completed",
         description=f"**{contract.title or f'Contract #{contract.contract_id}'}** has been completed.",
         color=Color.green(),
     )
+    embed.add_field(name="Runner", value=contract.runner_main_name)
 
     try:
-        _send_dm(runner, embed)
+        _send_dm(owner, embed)
     except Exception:
-        logger.exception("Failed to DM runner %d for completed contract %d.", runner.pk, contract_pk)
+        logger.exception("Failed to DM owner %d for completed contract %d.", owner.pk, contract_pk)
 
 
 @shared_task
@@ -193,7 +196,7 @@ def notify_runner_contract_canceled(contract_pk: int):
     except DiscordNotificationPreference.DoesNotExist:
         return
 
-    if not pref.notify_contract_completed:
+    if not pref.notify_contract_canceled:
         return
 
     embed = Embed(
