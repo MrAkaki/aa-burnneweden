@@ -23,35 +23,57 @@ def _send_dm(user, embed):
     send_message(user_id=discord_id, embed=embed)
 
 
+def _format_duration(delta):
+    """Render a timedelta as a short human-readable age, e.g. '1d 4h', '6h', '42m'."""
+    total_minutes = int(delta.total_seconds() // 60)
+    days, rem_minutes = divmod(total_minutes, 24 * 60)
+    hours, minutes = divmod(rem_minutes, 60)
+    if days:
+        return f"{days}d {hours}h"
+    if hours:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
+
+
+def _group_by_puller(contracts):
+    """Group contracts by puller main name, returning [(name, [contracts])] sorted by count desc."""
+    groups = {}
+    for contract in contracts:
+        groups.setdefault(contract.issuer_main_name, []).append(contract)
+    return sorted(groups.items(), key=lambda item: len(item[1]), reverse=True)
+
+
 @shared_task
-def notify_runners_new_contract(contract_pk: int):
-    """Broadcast a new open contract to all opted-in runners."""
+def notify_runners_new_contract(contract_pks: list):
+    """Broadcast a batch of newly-opened contracts to all opted-in runners in a single DM each."""
     if not _discord_active():
+        return
+    if not contract_pks:
         return
     from discord import Color, Embed
 
     from .models import Contract, DiscordNotificationPreference
 
-    try:
-        contract = Contract.objects.select_related("issuer_character", "issuer_user").get(pk=contract_pk)
-    except Contract.DoesNotExist:
+    contracts = list(
+        Contract.objects.filter(pk__in=contract_pks).select_related("issuer_character", "issuer_user")
+    )
+    if not contracts:
         return
 
     embed = Embed(
-        title="New Burner Contract Available",
-        description=f"**{contract.title or f'Contract #{contract.contract_id}'}**",
+        title="New Burner Contracts Available",
+        description=f"**{len(contracts)}** new contract(s) posted:",
         color=Color.green(),
     )
-    embed.add_field(name="Reward", value=f"{contract.reward:,.0f} ISK" if contract.reward else "—")
-    embed.add_field(name="Missions", value=str(contract.missions))
-    embed.add_field(name="Issued by", value=contract.issuer_main_name)
+    for puller_name, puller_contracts in _group_by_puller(contracts):
+        embed.add_field(name=puller_name, value=str(len(puller_contracts)))
 
     prefs = DiscordNotificationPreference.objects.filter(notify_contract_created=True).select_related("user")
     for pref in prefs:
         try:
             _send_dm(pref.user, embed)
         except Exception:
-            logger.exception("Failed to DM user %d for new contract %d.", pref.user_id, contract_pk)
+            logger.exception("Failed to DM user %d for new contracts %s.", pref.user_id, contract_pks)
 
 
 @shared_task
@@ -174,44 +196,6 @@ def notify_owner_contract_completed(contract_pk: int):
 
 
 @shared_task
-def notify_runner_contract_canceled(contract_pk: int):
-    """Notify the runner that their active contract was canceled."""
-    if not _discord_active():
-        return
-    from discord import Color, Embed
-
-    from .models import Contract, DiscordNotificationPreference
-
-    try:
-        contract = Contract.objects.select_related("accepted_by", "assigned_runner").get(pk=contract_pk)
-    except Contract.DoesNotExist:
-        return
-
-    runner = contract.assigned_runner or contract.accepted_by
-    if not runner:
-        return
-
-    try:
-        pref = runner.burner_discord_prefs
-    except DiscordNotificationPreference.DoesNotExist:
-        return
-
-    if not pref.notify_contract_canceled:
-        return
-
-    embed = Embed(
-        title="Contract Canceled",
-        description=f"**{contract.title or f'Contract #{contract.contract_id}'}** was canceled.",
-        color=Color.orange(),
-    )
-
-    try:
-        _send_dm(runner, embed)
-    except Exception:
-        logger.exception("Failed to DM runner %d for canceled contract %d.", runner.pk, contract_pk)
-
-
-@shared_task
 def notify_pullers_open_contracts():
     """Periodic task: DM opted-in pullers about unannounced open contracts."""
     if not _discord_active():
@@ -287,23 +271,26 @@ def notify_runners_stale_contracts():
         Contract.objects.filter(pk__in=[c.pk for c in stale]).update(discord_stale_dm_sent=True)
         return
 
-    for contract in stale:
-        embed = Embed(
-            title="Burner Contract Still Open",
-            description=(
-                f"**{contract.title or f'Contract #{contract.contract_id}'}** "
-                "has been open for over 24 hours and still needs a runner."
-            ),
-            color=Color.gold(),
+    reference = now()
+    embed = Embed(
+        title="Burner Contracts Still Open",
+        description=(
+            f"**{len(stale)}** contract(s) have been open for over 24 hours and still need a runner:"
+        ),
+        color=Color.gold(),
+    )
+    for puller_name, puller_contracts in _group_by_puller(stale):
+        oldest = max(reference - c.date_issued for c in puller_contracts)
+        embed.add_field(
+            name=puller_name,
+            value=f"{len(puller_contracts)} contract(s), oldest open {_format_duration(oldest)}",
         )
-        embed.add_field(name="Reward", value=f"{contract.reward:,.0f} ISK" if contract.reward else "—")
-        embed.add_field(name="Issued by", value=contract.issuer_main_name)
 
-        for pref in prefs:
-            try:
-                _send_dm(pref.user, embed)
-            except Exception:
-                logger.exception("Failed to DM user %d for stale contract %d.", pref.user_id, contract.pk)
+    for pref in prefs:
+        try:
+            _send_dm(pref.user, embed)
+        except Exception:
+            logger.exception("Failed to DM user %d for stale contracts.", pref.user_id)
 
     pks = [c.pk for c in stale]
     Contract.objects.filter(pk__in=pks).update(discord_stale_dm_sent=True)

@@ -777,16 +777,6 @@
                     </span>
                 </label>
 
-                <label class="list-group-item d-flex gap-3">
-                    <input class="form-check-input flex-shrink-0 mt-1" type="checkbox"
-                        name="notify_contract_canceled"
-                        {% if discord_prefs.notify_contract_canceled %}checked{% endif %}>
-                    <span>
-                        <strong>{% trans "Contract canceled" %}</strong><br>
-                        <span class="text-muted small">{% trans "Sent when a contract you are running is canceled." %}</span>
-                    </span>
-                </label>
-
             </div>
             {% endif %}
 

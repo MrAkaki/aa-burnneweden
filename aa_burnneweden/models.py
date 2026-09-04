@@ -270,7 +270,6 @@ class DiscordNotificationPreference(models.Model):
     # Runner opt-ins
     notify_contract_created = models.BooleanField(default=False)
     notify_contract_rejected = models.BooleanField(default=False)
-    notify_contract_canceled = models.BooleanField(default=False)
     notify_contract_stale = models.BooleanField(
         default=False,
         help_text="Notify me when an open contract has been available for over 24 hours without being claimed.",
