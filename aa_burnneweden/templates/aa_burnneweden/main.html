@@ -759,6 +759,16 @@
 
                 <label class="list-group-item d-flex gap-3">
                     <input class="form-check-input flex-shrink-0 mt-1" type="checkbox"
+                        name="notify_contract_stale"
+                        {% if discord_prefs.notify_contract_stale %}checked{% endif %}>
+                    <span>
+                        <strong>{% trans "Contract still open after 24h" %}</strong><br>
+                        <span class="text-muted small">{% trans "Sent when an open contract has gone unclaimed for over 24 hours." %}</span>
+                    </span>
+                </label>
+
+                <label class="list-group-item d-flex gap-3">
+                    <input class="form-check-input flex-shrink-0 mt-1" type="checkbox"
                         name="notify_contract_rejected"
                         {% if discord_prefs.notify_contract_rejected %}checked{% endif %}>
                     <span>

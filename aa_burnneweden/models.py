@@ -155,6 +155,7 @@ class Contract(models.Model):
     )
     staff_notes = models.TextField(blank=True)
     discord_dm_sent = models.BooleanField(default=False)
+    discord_stale_dm_sent = models.BooleanField(default=False)
 
     objects = ContractManager()
 
@@ -270,6 +271,10 @@ class DiscordNotificationPreference(models.Model):
     notify_contract_created = models.BooleanField(default=False)
     notify_contract_rejected = models.BooleanField(default=False)
     notify_contract_canceled = models.BooleanField(default=False)
+    notify_contract_stale = models.BooleanField(
+        default=False,
+        help_text="Notify me when an open contract has been available for over 24 hours without being claimed.",
+    )
 
     # Puller opt-ins
     notify_new_open_contracts = models.BooleanField(default=False)

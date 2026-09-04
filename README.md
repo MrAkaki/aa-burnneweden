@@ -24,6 +24,7 @@ These tasks run via Celery and should be scheduled with Celery beat (or `django-
 |---|---|---|
 | `sync_contracts` | Every 15–30 min | Syncs all active owner corporations: upserts contracts, handles ESI-cancelled/expired/rejected statuses, resolves issuers and acceptors. ESI caches contract data for ~15 min so polling faster has no effect. |
 | `notify_pullers_open_contracts` | Every 15–30 min | Sends Discord DMs to opted-in pullers about new open contracts that have not yet been announced. No-op when `aadiscordbot` is not installed. |
+| `notify_runners_stale_contracts` | Every 15–30 min | Sends Discord DMs to opted-in runners about open contracts that have gone unclaimed for over 24 hours. Sent once per contract. No-op when `aadiscordbot` is not installed. |
 
 ### User-triggered tasks
 
@@ -90,11 +91,12 @@ Users opt in per-event from the Notifications tab in the app:
 | Event | Who receives it |
 |---|---|
 | New contract available | Runners (opted in) |
-| Contract started | The assigned runner |
+| Contract still open after 24h | Runners (opted in) |
 | Contract rejected | The assigned runner |
-| Contract completed | The assigned runner |
 | Contract canceled | The assigned runner |
-| New open contracts | Pullers (opted in) |
+| New open contracts | The puller who submitted it |
+| Contract started | The puller who submitted it |
+| Contract completed | The puller who submitted it |
 
 ## Collaboration
 
