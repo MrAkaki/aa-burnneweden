@@ -533,6 +533,7 @@ def discord_settings(request):
 
     if is_runner:
         pref.notify_contract_created = "notify_contract_created" in request.POST
+        pref.notify_contract_stale = "notify_contract_stale" in request.POST
         pref.notify_contract_rejected = "notify_contract_rejected" in request.POST
         pref.notify_contract_canceled = "notify_contract_canceled" in request.POST
     if is_puller:
@@ -544,6 +545,8 @@ def discord_settings(request):
     enabled = []
     if pref.notify_contract_created:
         enabled.append("New contract available")
+    if pref.notify_contract_stale:
+        enabled.append("Contract still open after 24h")
     if pref.notify_contract_rejected:
         enabled.append("Contract rejected")
     if pref.notify_contract_canceled:

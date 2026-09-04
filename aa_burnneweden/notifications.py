@@ -258,6 +258,59 @@ def notify_pullers_open_contracts():
 
 
 @shared_task
+def notify_runners_stale_contracts():
+    """Periodic task: DM opted-in runners about open contracts that have sat unclaimed for over 24h."""
+    if not _discord_active():
+        return
+    from datetime import timedelta
+
+    from django.utils.timezone import now
+
+    from discord import Color, Embed
+
+    from .models import Contract, DiscordNotificationPreference
+
+    cutoff = now() - timedelta(hours=24)
+    stale = list(
+        Contract.objects.open()
+        .filter(discord_stale_dm_sent=False, date_issued__lte=cutoff)
+        .select_related("issuer_character", "issuer_user")
+    )
+
+    if not stale:
+        return
+
+    prefs = list(
+        DiscordNotificationPreference.objects.filter(notify_contract_stale=True).select_related("user")
+    )
+    if not prefs:
+        Contract.objects.filter(pk__in=[c.pk for c in stale]).update(discord_stale_dm_sent=True)
+        return
+
+    for contract in stale:
+        embed = Embed(
+            title="Burner Contract Still Open",
+            description=(
+                f"**{contract.title or f'Contract #{contract.contract_id}'}** "
+                "has been open for over 24 hours and still needs a runner."
+            ),
+            color=Color.gold(),
+        )
+        embed.add_field(name="Reward", value=f"{contract.reward:,.0f} ISK" if contract.reward else "—")
+        embed.add_field(name="Issued by", value=contract.issuer_main_name)
+
+        for pref in prefs:
+            try:
+                _send_dm(pref.user, embed)
+            except Exception:
+                logger.exception("Failed to DM user %d for stale contract %d.", pref.user_id, contract.pk)
+
+    pks = [c.pk for c in stale]
+    Contract.objects.filter(pk__in=pks).update(discord_stale_dm_sent=True)
+    logger.info("Processed stale contract DMs for %d contracts.", len(pks))
+
+
+@shared_task
 def send_discord_confirmation_dm(user_pk: int, enabled_events: list):
     """Send a confirmation DM when a user saves their notification preferences."""
     if not _discord_active():
