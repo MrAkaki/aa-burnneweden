@@ -64,6 +64,7 @@ def _sync_corp(owner):
         return
 
     updated = 0
+    new_open_contract_pks = []
     for raw in raw_contracts:
         if raw.type != "item_exchange":
             continue
@@ -151,10 +152,13 @@ def _sync_corp(owner):
             if acceptor_id:
                 _resolve_accepted_by(contract, acceptor_id)
             if not contract.date_started:
-                from .notifications import notify_runners_new_contract
-                notify_runners_new_contract.delay(contract.pk)
+                new_open_contract_pks.append(contract.pk)
 
         updated += 1
+
+    if new_open_contract_pks:
+        from .notifications import notify_runners_new_contract
+        notify_runners_new_contract.delay(new_open_contract_pks)
 
     owner.last_updated = now()
     owner.save(update_fields=["last_updated"])
@@ -248,6 +252,7 @@ def update_contracts_for_character(character_id: int, user_pk: int):
 
     issuer_char, issuer_user = _resolve_issuer(character_id)
     updated = 0
+    new_open_contract_pks = []
     for raw in raw_contracts:
         if raw.type != "item_exchange":
             continue
@@ -326,10 +331,13 @@ def update_contracts_for_character(character_id: int, user_pk: int):
             if acceptor_id:
                 _resolve_accepted_by(contract, acceptor_id)
             if not contract.date_started:
-                from .notifications import notify_runners_new_contract
-                notify_runners_new_contract.delay(contract.pk)
+                new_open_contract_pks.append(contract.pk)
 
         updated += 1
+
+    if new_open_contract_pks:
+        from .notifications import notify_runners_new_contract
+        notify_runners_new_contract.delay(new_open_contract_pks)
 
     logger.info("Synced %d item-exchange contracts for character %d.", updated, character_id)
     resolve_contract_issuers.delay()

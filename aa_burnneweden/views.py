@@ -119,9 +119,9 @@ def main_view(request):
             puller_tokens.values("character_id", "character_name").distinct()
         )
         ctx["has_puller_token"] = puller_tokens.exists()
-        ctx["my_open"] = Contract.objects.filter(issuer_user=user).open().count()
-        ctx["my_running"] = Contract.objects.filter(issuer_user=user).running().count()
-        ctx["my_completed"] = Contract.objects.filter(issuer_user=user, date_completed__isnull=False).count()
+        ctx["my_open"] = _missions_sum(Contract.objects.filter(issuer_user=user).open())
+        ctx["my_running"] = _missions_sum(Contract.objects.filter(issuer_user=user).running())
+        ctx["my_completed"] = _missions_sum(Contract.objects.filter(issuer_user=user, date_completed__isnull=False))
 
     if is_staff or user.has_perm("aa_burnneweden.runner_access"):
         ctx["show_runner_tab"] = True
@@ -133,9 +133,9 @@ def main_view(request):
         ctx["runner_available"] = qs_base.open()
         ctx["runner_running"] = my_qs.running().distinct()
         ctx["runner_closed"] = my_qs.closed().distinct()
-        ctx["my_runs_active"] = ctx["runner_running"].count()
-        ctx["my_runs_week"] = my_qs.filter(date_completed__gte=cutoff_7d).distinct().count()
-        ctx["my_runs_month"] = my_qs.filter(date_completed__gte=cutoff_30d).distinct().count()
+        ctx["my_runs_active"] = _missions_sum(my_qs.running())
+        ctx["my_runs_week"] = _missions_sum(my_qs.filter(date_completed__gte=cutoff_7d))
+        ctx["my_runs_month"] = _missions_sum(my_qs.filter(date_completed__gte=cutoff_30d))
 
     if is_staff:
         from django.contrib.auth.models import Permission
@@ -361,9 +361,6 @@ def contract_cancel(request, pk):
     contract.cancelled_by = user
     contract.save(update_fields=["date_cancelled", "cancelled_by"])
 
-    from .notifications import notify_runner_contract_canceled
-    notify_runner_contract_canceled.delay(contract.pk)
-
     messages.success(request, f"Contract #{contract.contract_id} cancelled.")
     return _smart_redirect(request)
 
@@ -470,13 +467,11 @@ def bulk_cancel(request):
     if not is_staff:
         qs = qs.filter(models.Q(accepted_by=user) | models.Q(assigned_runner=user))
 
-    from .notifications import notify_runner_contract_canceled
     count = 0
     for contract in qs:
         contract.date_cancelled = now()
         contract.cancelled_by = user
         contract.save(update_fields=["date_cancelled", "cancelled_by"])
-        notify_runner_contract_canceled.delay(contract.pk)
         count += 1
 
     if count:
@@ -535,7 +530,6 @@ def discord_settings(request):
         pref.notify_contract_created = "notify_contract_created" in request.POST
         pref.notify_contract_stale = "notify_contract_stale" in request.POST
         pref.notify_contract_rejected = "notify_contract_rejected" in request.POST
-        pref.notify_contract_canceled = "notify_contract_canceled" in request.POST
     if is_puller:
         pref.notify_new_open_contracts = "notify_new_open_contracts" in request.POST
         pref.notify_contract_started = "notify_contract_started" in request.POST
@@ -549,8 +543,6 @@ def discord_settings(request):
         enabled.append("Contract still open after 24h")
     if pref.notify_contract_rejected:
         enabled.append("Contract rejected")
-    if pref.notify_contract_canceled:
-        enabled.append("Contract canceled")
     if pref.notify_new_open_contracts:
         enabled.append("New open contracts")
     if pref.notify_contract_started:
